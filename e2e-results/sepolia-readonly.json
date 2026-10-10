@@ -1,0 +1,10 @@
+{
+  "network": "sepolia",
+  "relayer": "https://relayer.testnet.zama.org",
+  "encryptMs": 11055,
+  "handle": "0xe67a2b3f41d81bd5fea811b52957c1f35483297883000000000000aa36a70500",
+  "invoiceIdFromCall": "0xf61a4dddc0267742e1e67691ecf3946f19aad5716cccabec9cde6a52ec632c66",
+  "matchesFormula": true,
+  "wrongUserRejected": true,
+  "at": "2026-10-10T06:37:01.129Z"
+}

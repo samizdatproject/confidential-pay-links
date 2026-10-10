@@ -330,7 +330,7 @@ export async function viewPay(query: string) {
       row('Your balance', h('span', {}, balanceSlot, ' ', balanceBtn, ' ', faucet ?? '')),
       h('div', { class: 'actions' }, knownAmount === undefined && details === 'verified' ? revealBtn : null, payBtn),
       status.el,
-      h('p', { class: 'hint' }, 'Your payment is encrypted in your browser and sent with one confidentialTransferAndCall. If the amount does not match exactly, or the invoice was already paid, the token refunds you in the same transaction. Nobody watching the chain can tell which happened. You pay gas in Sepolia ETH.'),
+      h('p', { class: 'hint' }, 'Your payment is encrypted in your browser and sent with one confidentialTransferAndCall. If the amount does not match exactly, or the invoice was already paid, the token refunds you in the same transaction. Nobody watching the chain can tell which happened. You pay network gas in ETH.'),
       h('p', { class: 'hint' }, 'Already paid? ', h('a', { href: `#/check?c=${link.chainId}&id=${link.invoiceId}` }, 'Public paid check'), ' · ', h('a', { href: '#/receipts' }, 'My payments')),
     ),
   );
@@ -486,11 +486,15 @@ export function viewDashboard() {
     return v === undefined ? lockedValue() : v ? badge('paid', 'ok') : badge('unpaid', 'open');
   };
 
-  const action = (label: string, fn: (r: Row) => Promise<void>, r: Row, cls = 'ghost small') =>
+  /** Runs a merchant action, reloads the list, then shows the action's result (load() resets the status line). */
+  const action = (label: string, fn: (r: Row) => Promise<string | void>, r: Row, cls = 'ghost small') =>
     h('button', { type: 'button', class: cls, onclick: async () => {
       try {
-        await fn(r);
+        const msg = await fn(r);
+        if (msg === undefined) return;
         await load();
+        if (clear.size) await decryptAll(); // permit is cached: no new wallet prompt
+        status.ok(msg);
       } catch (e) {
         status.error(e);
       }
@@ -501,16 +505,17 @@ export function viewDashboard() {
     if (!who) return;
     if (!isAddress(who)) throw new Error('Not an address');
     await sendTx(session!, { address: payLinksOf(session!.chainId), abi: payLinksAbi, functionName: 'addViewer', args: [r.id, getAddress(who)] }, status.pending);
-    status.ok(`Done. Send them: ${baseUrl()}#/audit?c=${session!.chainId}&id=${r.id}`);
+    return `Done. Send them: ${baseUrl()}#/audit?c=${session!.chainId}&id=${r.id}`;
   };
   const cancel = async (r: Row) => {
     if (!confirm('Cancel this invoice? Later payments will be rejected.')) return;
     await sendTx(session!, { address: payLinksOf(session!.chainId), abi: payLinksAbi, functionName: 'cancelInvoice', args: [r.id] }, status.pending);
+    return 'Invoice cancelled.';
   };
   const publish = async (r: Row) => {
     if (!confirm('Make this invoice\'s paid / not-paid status public? The amount stays private. This cannot be undone for the current status.')) return;
     await sendTx(session!, { address: payLinksOf(session!.chainId), abi: payLinksAbi, functionName: 'publishPaidStatus', args: [r.id] }, status.pending);
-    status.ok(`Published. Public check: ${baseUrl()}#/check?c=${session!.chainId}&id=${r.id}`);
+    return `Published. Public check: ${baseUrl()}#/check?c=${session!.chainId}&id=${r.id}`;
   };
 
   const exportCsv = () => {
@@ -544,7 +549,9 @@ export function viewDashboard() {
         h('button', { type: 'button', class: 'ghost', onclick: load }, 'Refresh')),
       ...rows.map((r) => h('div', { class: 'invoice' },
         h('div', { class: 'invoice-head' },
-          h('strong', {}, r.link?.memo || short(r.id)), ' ', stateBadge(r.inv), ' ', paidCell(r.inv.paid)),
+          h('strong', {}, r.link?.memo || short(r.id)), ' ',
+          // "open" next to "paid" reads as a contradiction; only show the state when it adds information.
+          val(r.inv.paid) === true && openState(r.inv, now()) === 'open' ? null : stateBadge(r.inv), ' ', paidCell(r.inv.paid)),
         row('Amount', amt(r, r.inv.amount)),
         row('Created', fmtTime(r.inv.createdAt)),
         r.inv.expiresAt ? row('Expires', fmtTime(r.inv.expiresAt)) : null,

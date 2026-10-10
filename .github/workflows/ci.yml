@@ -1,0 +1,29 @@
+# Tests on every push and PR. Hosting is not automated here: GitHub Pages cannot send the COOP/COEP headers the
+# Zama SDK wants (see docs/DEPLOY.md); deploy web/dist to Cloudflare Pages or Vercel instead.
+# Actions are pinned to commit SHAs (tag in the trailing comment).
+name: ci
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
+      - run: forge soldeer install && forge test
+        working-directory: contracts
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci && npm test && npm run build
+        working-directory: web
+      - name: local FHEVM end to end
+        run: |
+          scripts/local-chain.sh
+          cd web && npm run e2e

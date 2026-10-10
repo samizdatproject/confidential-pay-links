@@ -574,12 +574,26 @@ contract ConfidentialPayLinksTest is FhevmTest {
         bytes32 a = _createOpen(PRICE);
         bytes32 b = _create(bytes32(uint256(10)), address(cusd), address(0), 0, PRICE);
 
+        // Warm-up: the merchant's first-ever receipt writes a fresh balance slot; compare like with like.
+        _pay(payer, cusd, _create(bytes32(uint256(11)), address(cusd), address(0), 0, PRICE), PRICE);
+        (externalEuint64 e1, bytes memory p1) = encryptUint64(PRICE, payer, address(cusd));
+        (externalEuint64 e2, bytes memory p2) = encryptUint64(PRICE - 1, payer, address(cusd));
         vm.recordLogs();
-        _pay(payer, cusd, a, PRICE); // accepted
+        vm.prank(payer);
+        uint256 g = gasleft();
+        cusd.confidentialTransferAndCall(address(links), e1, p1, abi.encode(a)); // accepted
+        uint256 gasOk = g - gasleft();
         Vm.Log[] memory ok = vm.getRecordedLogs();
         vm.recordLogs();
-        _pay(payer, cusd, b, PRICE - 1); // refunded
+        vm.prank(payer);
+        g = gasleft();
+        cusd.confidentialTransferAndCall(address(links), e2, p2, abi.encode(b)); // refunded
+        uint256 gasBad = g - gasleft();
         Vm.Log[] memory bad = vm.getRecordedLogs();
+        emit log_named_uint("gas accepted", gasOk);
+        emit log_named_uint("gas refunded", gasBad);
+        // Same code path: gas may differ only by storage warm/cold noise, never by branch.
+        assertApproxEqAbs(gasOk, gasBad, 1_000, "gas does not reveal the outcome");
 
         bytes32[] memory okSig = _appEvents(ok);
         bytes32[] memory badSig = _appEvents(bad);

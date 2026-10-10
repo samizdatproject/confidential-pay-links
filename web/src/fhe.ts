@@ -1,13 +1,14 @@
 import {
   cleartext,
+  createConfig,
   isRetryable,
   matchZamaError,
   retryAfterSeconds,
   ZamaError,
   ZamaSDK,
 } from '@zama-fhe/sdk';
-import { hardhat, sepolia as zamaSepolia } from '@zama-fhe/sdk/chains';
-import { createConfig } from '@zama-fhe/sdk/viem';
+import { hardhat, sepolia as zamaSepolia, type FheChain } from '@zama-fhe/sdk/chains';
+import { ViemProvider, ViemSigner } from '@zama-fhe/sdk/viem';
 import { web } from '@zama-fhe/sdk/web';
 import type { Address, Hex, PublicClient, WalletClient } from 'viem';
 import { networkOf } from './chains';
@@ -26,19 +27,20 @@ export function fheFor(chainId: number, publicClient: PublicClient, walletClient
   let sdk = cache.get(key);
   if (sdk) return sdk;
   const net = networkOf(chainId);
-  const chain =
+  const chain: FheChain =
     net.relayer === 'local' ? { ...hardhat, network: net.rpc } : { ...zamaSepolia, network: net.rpc };
   const relayer = net.relayer === 'local' ? cleartext({ timeout: RELAYER_TIMEOUT_MS }) : web({ timeout: RELAYER_TIMEOUT_MS });
   sdk = new ZamaSDK(
     createConfig({
       chains: [chain],
-      publicClient,
-      ...(walletClient ? { walletClient } : {}),
+      provider: new ViemProvider({ publicClient }),
+      // No signer = read-only SDK: public decryption works, user decryption and encryption need a wallet.
+      signer: walletClient ? new ViemSigner({ walletClient }) : undefined,
       relayers: { [chain.id]: relayer },
       // Pages served without COOP/COEP (e.g. GitHub Pages) cannot use SharedArrayBuffer; the SDK falls back to a
       // single thread on its own, this just avoids the warning when we already know.
       runtime: globalThis.crossOriginIsolated ? {} : { singleThread: true },
-    } as Parameters<typeof createConfig>[0]),
+    }),
   );
   cache.set(key, sdk);
   return sdk;
