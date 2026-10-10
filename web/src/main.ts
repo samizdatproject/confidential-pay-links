@@ -1,4 +1,5 @@
 import './style.css';
+import { startDiscovery } from './discovery';
 import { viewAudit, viewCheck, viewCreate, viewDashboard, viewHow, viewMyPayments, viewPay, viewReceipt } from './views';
 
 function route() {
@@ -12,5 +13,7 @@ function route() {
   if (path === '/how') return viewHow();
   return viewCreate();
 }
+// Ask EIP-6963 wallets to announce themselves early, so the picker is ready on the first click.
+startDiscovery();
 window.addEventListener('hashchange', route);
 route();

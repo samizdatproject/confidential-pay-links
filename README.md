@@ -66,6 +66,8 @@ link: #/pay?c=<chain>&id=<invoiceId>&s=<salt>&m=<memo>[&a=<amount>]
 | `#/audit?c&id` | auditor | Decrypts the one invoice the merchant shared |
 | `#/how` | anyone | The privacy model in plain words |
 
+**Wallets.** Wallets are discovered with EIP-6963. When several are installed (for example Phantom and MetaMask, which both claim `window.ethereum`), a picker shows each wallet's announced name and icon. The choice is remembered in localStorage, and a "switch wallet" link in the header forgets it. `window.ethereum` is used only when no wallet announces itself.
+
 **Outages.** Relayer and decryption calls retry with backoff when the error is transient (HTTP 5xx or 429, network errors, `DECRYPTION_FAILED`). The UI shows "Retrying in N s…" and then a Retry button. Sepolia decryption had real outages in September 2026, and payments already on chain are unaffected by them.
 
 ## Privacy model: what is public

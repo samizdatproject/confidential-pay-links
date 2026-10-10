@@ -66,3 +66,8 @@ label.check input { width: auto; margin-top: 4px; }
 .payment { font-size: .9rem; padding: 2px 0; }
 ul { padding-left: 20px; }
 .testnet-banner { background: #92400e; }
+.wallet-picker { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 10; }
+.wallet-picker .card { width: 100%; max-width: 360px; }
+.wallet-option { display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 8px; color: var(--text); }
+.wallet-option img, #wallet-status img { border-radius: 4px; vertical-align: -3px; margin-right: 4px; }
+#wallet-status { width: 100%; text-align: right; }
