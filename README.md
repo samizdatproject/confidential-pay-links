@@ -70,6 +70,11 @@ link: #/pay?c=<chain>&id=<invoiceId>&s=<salt>&m=<memo>[&a=<amount>]
 
 **Gas.** Every write sends an explicit gas limit: max(the connected account's `eth_estimateGas` × 1.5, a per-function floor), capped below 16,777,216 (`web/src/gas.ts`). The floors are Sepolia measurements × about 1.25 plus about 300k for smart-account wrappers. Examples: createInvoice 2.8M, pay 6.5M, wrap 1.5M. This was added after a real createInvoice from an EIP-7702 MetaMask account ran out of gas at a wallet-chosen limit of 1.83M. A reverted transaction shows an explorer link and says when it most likely ran out of gas.
 
+**MetaMask can override the gas limit.** MetaMask may replace a dapp's gas limit with its own estimate, which has no margin. It does this for contracts that its address scan does not rate "Trusted", even when "Added protection" is off ([MetaMask/metamask-extension#46334](https://github.com/MetaMask/metamask-extension/issues/46334)).
+- A real payment from an EIP-7702 MetaMask account was sent with a 4,505,130 limit and used 4,432,438 of it (98%), although the site suggested 6.5M.
+- The app now shows the suggested limit in the confirm step and a gas hint near Pay. When a transaction reverts it names the limit the wallet actually sent.
+- **If a transaction fails out of gas in MetaMask:** retry, and in the confirmation set Edit network fee → Advanced → Gas limit to the suggested value (at least 6,500,000 for a payment, 2,800,000 for createInvoice).
+
 **Outages.** Relayer and decryption calls retry with backoff when the error is transient (HTTP 5xx or 429, network errors, `DECRYPTION_FAILED`). The UI shows "Retrying in N s…" and then a Retry button. Sepolia decryption had real outages in September 2026, and payments already on chain are unaffected by them.
 
 ## Privacy model: what is public

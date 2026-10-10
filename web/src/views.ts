@@ -67,15 +67,18 @@ async function sendTx(
     estimate = undefined; // the floor still applies
   }
   const gas = gasLimitFor(req.functionName, estimate);
-  say('Confirm the transaction in your wallet…');
+  // MetaMask can replace a dapp's gas limit with its own zero-margin estimate (MetaMask/metamask-extension#46334),
+  // which FHE transactions can outgrow. Tell the user what to look for.
+  say(`Confirm in your wallet. Suggested gas limit: ${gas.toLocaleString('en-US')}. If your wallet shows a lower limit, raise it (MetaMask: Edit network fee → Advanced → Gas limit).`);
   const hash = await s.wallet.writeContract({ ...(request as object), gas } as Parameters<WalletClient['writeContract']>[0]);
   say(`Sent ${short(hash)}. Waiting for the block…`);
   const r = await s.client.waitForTransactionReceipt({ hash });
   if (r.status !== 'success') {
     const tx = await s.client.getTransaction({ hash }).catch(() => undefined);
     const oog = looksOutOfGas(r.gasUsed, tx?.gas);
+    const lowered = tx?.gas !== undefined && tx.gas < gas ? ` Your wallet sent a gas limit of ${tx.gas.toLocaleString('en-US')} instead of the suggested ${gas.toLocaleString('en-US')}.` : '';
     throw new TxRevertedError(
-      `Transaction ${short(hash)} reverted${oog ? ': it most likely ran out of gas (your wallet may have lowered the gas limit). Try again and keep the suggested gas limit.' : '. Try again; if it keeps failing, open it in the explorer.'}`,
+      `Transaction ${short(hash)} reverted${oog ? `: it most likely ran out of gas.${lowered} Try again and set the gas limit to at least ${gas.toLocaleString('en-US')} in your wallet (MetaMask: Edit network fee → Advanced).` : `.${lowered} Try again; if it keeps failing, open it in the explorer.`}`,
       explorerTx(s.chainId, hash),
     );
   }
@@ -359,6 +362,7 @@ export async function viewPay(query: string) {
       row('Your balance', h('span', {}, balanceSlot, ' ', balanceBtn, ' ', faucet ?? '')),
       h('div', { class: 'actions' }, knownAmount === undefined && details === 'verified' ? revealBtn : null, payBtn),
       status.el,
+      h('p', { class: 'hint' }, `Gas: an encrypted payment needs about 4.5–4.8M gas on Sepolia. The app suggests ${gasLimitFor('confidentialTransferAndCall', undefined).toLocaleString('en-US')}; some wallets (MetaMask) replace it with a tight estimate of their own. If a payment fails out of gas, set the gas limit to at least that under Edit network fee → Advanced.`),
       h('p', { class: 'hint' }, 'Your payment is encrypted in your browser and sent with one confidentialTransferAndCall. If the amount does not match exactly, or the invoice was already paid, the token refunds you in the same transaction. Nobody watching the chain can tell which happened. You pay network gas in ETH.'),
       h('p', { class: 'hint' }, 'Already paid? ', h('a', { href: `#/check?c=${link.chainId}&id=${link.invoiceId}` }, 'Public paid check'), ' · ', h('a', { href: '#/receipts' }, 'My payments')),
     ),

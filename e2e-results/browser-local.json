@@ -1,9 +1,15 @@
 {
   "crossOriginIsolated": true,
   "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://ethereum-sepolia-rpc.publicnode.com https://relayer.testnet.zama.org https://zama-mpc-testnet-public-efd88e2b.s3.eu-west-1.amazonaws.com http://127.0.0.1:8545; img-src 'self' data:; style-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'",
-  "link": "http://127.0.0.1:4173/#/pay?c=31337&id=0xaab8cdca1a4cf63e92bd73c0a818c1255da23bdb7c096af3b99ca2c09db4a711&s=0x1b035902b748e308f1263fdb11f5a40399f932aaf30e0e9c08015186b2d64b5b&m=Invoice+%2342+%E2%80%94+logo+design&a=25000000",
+  "link": "http://127.0.0.1:4173/#/pay?c=31337&id=0x9c8d55a40df3f3db99f3903b6f557aaf4a2a804433424f5ead0e95ec2cfd784c&s=0xa21628facf1321ebb19c0dd7a3fc0cb9af80654530b866d5ec87c778d12ff7f6&m=Invoice+%2342+%E2%80%94+logo+design&a=25000000",
   "payPageShowsAmount": true,
   "payerReceipt": "accepted",
+  "payerTxGasLimits": [
+    "300000",
+    "300000",
+    "1500000",
+    "6500000"
+  ],
   "tamperedLinkBlocked": true,
   "dashboardShowsAmount": true,
   "dashboardShowsPaid": true,

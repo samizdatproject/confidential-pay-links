@@ -32,6 +32,7 @@ function injectedProvider(account, rpc) {
     removeListener() {},
     async request({ method, params }) {
       if (method === 'eth_requestAccounts' || method === 'eth_accounts') return [account];
+      if (method === 'eth_sendTransaction') (window.__gasSent ??= []).push(BigInt(params[0].gas ?? 0).toString());
       if (method === 'wallet_switchEthereumChain' || method === 'wallet_addEthereumChain') return null;
       return call(method, params);
     },
@@ -97,6 +98,7 @@ try {
   await clickText(p, 'Decrypt my receipt');
   await waitText(p, /accepted — the merchant was paid/);
   results.payerReceipt = 'accepted';
+  results.payerTxGasLimits = await p.evaluate(() => window.__gasSent);
   await p.screenshot({ path: `${shots}3-receipt.png`, fullPage: true });
 
   // 3. A tampered link is flagged and cannot be paid.
