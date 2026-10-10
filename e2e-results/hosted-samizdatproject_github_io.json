@@ -1,6 +1,6 @@
 {
   "app": "https://samizdatproject.github.io/confidential-pay-links/",
-  "at": "2026-10-10T08:04:05.774Z",
+  "at": "2026-10-10T09:22:15.976Z",
   "problems": [],
   "crossOriginIsolated": false,
   "serviceWorker": false,
@@ -17,6 +17,7 @@
     "eth_chainId",
     "eth_sendTransaction"
   ],
-  "encryptAndSimulateSeconds": 23,
+  "sentGasLimit": "2800000",
+  "encryptAndSimulateSeconds": 22,
   "encryptedAndSimulated": true
 }
