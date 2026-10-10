@@ -39,7 +39,8 @@ echo "budget:    $GAS gas @ 2x $(cast from-wei "$PRICE" gwei) gwei = ~$(cast fro
 [[ "$OK" == 1 ]] || { echo "Balance too low: send at least $(cast from-wei "$NEED") Sepolia ETH (0.01 is plenty) to $DEPLOYER." >&2; exit 1; }
 if [[ "${DRY_RUN:-}" == 1 ]]; then echo "dry run: all checks passed, not broadcasting"; exit 0; fi
 
-forge script script/Deploy.s.sol --rpc-url "$RPC" --keystore "$ETH_KEYSTORE" --sender "$DEPLOYER" --broadcast
+# forge's estimate under-counts code-deposit gas for this ~11KB contract on Sepolia; pad it.
+forge script script/Deploy.s.sol --rpc-url "$RPC" --keystore "$ETH_KEYSTORE" --sender "$DEPLOYER" --broadcast --gas-estimate-multiplier "${GAS_MULTIPLIER:-200}"
 RUN="broadcast/Deploy.s.sol/$CHAIN/run-latest.json"
 ADDR=$(cast to-check-sum-address "$(jq -r '.transactions[0].contractAddress' "$RUN")")
 TX=$(jq -r '.transactions[0].hash' "$RUN")
