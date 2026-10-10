@@ -73,7 +73,7 @@ Without them the SDK falls back to one thread. The app still works but is slower
 | **Cloudflare Pages** | `web/public/_headers` is copied into `dist/`, and Pages applies it | recommended (free, no account beyond Cloudflare) |
 | **Netlify** | same `_headers` file | works |
 | **Vercel** | `web/vercel.json` | works; set the project root to `web/` |
-| GitHub Pages | cannot set headers | works single-threaded only; a `coi-serviceworker` shim could add isolation, but it is not included |
+| **GitHub Pages** (live: https://samizdatproject.github.io/confidential-pay-links/) | cannot set headers | **works single-threaded.** Measured on live Sepolia with the production build: encrypt + input proof + `createInvoice` simulation took about 23 s single-threaded vs about 18 s cross-origin isolated, mostly the one-time FHE key download. A `coi-serviceworker` shim is therefore not used. Deployed by `.github/workflows/ci.yml` after all tests pass |
 | `npm run dev` / `npm run preview` | `vite.config.ts` sends both headers | tested: `crossOriginIsolated === true` |
 
 Build: `cd web && npm ci && npm run build`. The output is in `web/dist/` and it is a static site. A production build offers no localhost or anvil network: the local chain is only offered by `vite build --mode development` with `web/.env.development.local`. The SDK's own chain presets, which include a hardhat entry, are still bundled but unused.

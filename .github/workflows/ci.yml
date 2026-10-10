@@ -1,6 +1,7 @@
-# Tests on every push and PR. Hosting is not automated here: GitHub Pages cannot send the COOP/COEP headers the
-# Zama SDK wants (see docs/DEPLOY.md); deploy web/dist to Cloudflare Pages or Vercel instead.
-# Actions are pinned to commit SHAs (tag in the trailing comment).
+# Tests on every push and PR. On pushes to main, publishes web/ to GitHub Pages only if every test passes.
+# GitHub Pages cannot send COOP/COEP headers; the app then runs the Zama SDK single-threaded (measured: encrypt +
+# simulate on Sepolia in ~23 s vs ~18 s cross-origin isolated), see docs/DEPLOY.md.
+# Requires: repo Settings -> Pages -> Source = "GitHub Actions". Actions are pinned to commit SHAs (tag in comment).
 name: ci
 on:
   push:
@@ -27,3 +28,37 @@ jobs:
         run: |
           scripts/local-chain.sh
           cd web && npm run e2e
+
+  build:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      # Production build: Sepolia only (addresses in web/src/chains.ts); no local network is offered.
+      - run: npm ci && npm run build
+        working-directory: web
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
+        with:
+          path: web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: true
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4

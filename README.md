@@ -4,7 +4,8 @@ Payment links for **ERC-7984 confidential tokens** (cUSDC, cUSDT, …) on the [Z
 
 A merchant types an amount and a memo and gets a link. The payer opens it and pays with one `confidentialTransferAndCall`. The contract compares what arrived with what was invoiced **without decrypting either number**. An exact payment is forwarded to the merchant in the same transaction, and anything else is refunded by the token. Someone watching the chain sees that a payment attempt happened, but not the amount and not whether it was accepted.
 
-- **Status:** live on Sepolia, verified, with a passing live end-to-end run (see [Status](#status)). The frontend is not hosted yet.
+- **Live app:** https://samizdatproject.github.io/confidential-pay-links/ (Sepolia, GitHub Pages)
+- **Status:** live on Sepolia, verified, with a passing live end-to-end run (see [Status](#status)).
 - **Networks:** Sepolia, using Zama's mock wrappers `cUSDCMock` and `cUSDTMock`. There is also a local anvil chain running the cleartext FHEVM, for development.
 
 ## Why FHE, and what is new here

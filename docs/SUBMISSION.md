@@ -31,7 +31,7 @@ A merchant creates an invoice whose amount is encrypted in the browser with the 
 - Testing: forge-fhevm (real host contracts) and the SDK's `cleartext()` relayer against a local FHEVM, for end-to-end runs.
 
 **Links:**
-- Live app: ⟨https://…⟩ (Cloudflare Pages or Vercel, which serve COOP/COEP)
+- Live app: https://samizdatproject.github.io/confidential-pay-links/ (GitHub Pages; the Zama SDK runs single-threaded there)
 - Repo: ⟨https://github.com/samizdatproject/confidential-pay-links⟩
 - Contract (Sepolia): `0x195a67B3fd34Bb2372EdcaB465ed56F2E005653d` (ConfidentialPayLinks), `0x2d7003f996491F965C3Fb32355Cc42150FE5f94D` (PayLinksReader). Both verified on Blockscout.
 - Example payments (Sepolia, cUSDCMock): exact payment accepted `0x20231adce065ed9a244038dd636fe3e88550b3e1d26eadeea744515045679ba1`; wrong amount refunded `0x3b04bc40ec81a4cec46044e648a1bcca768a4cfb298e01c141c1bf0fa7ea1b43`; public paid proof recorded on chain `0xaf733dbb50920acddb52bc3808fdc9d7f9ce13520b998d31eb15cd58efa19406`.

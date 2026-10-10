@@ -1,0 +1,22 @@
+{
+  "app": "http://127.0.0.1:4181/",
+  "at": "2026-10-10T07:56:31.376Z",
+  "problems": [],
+  "crossOriginIsolated": true,
+  "serviceWorker": false,
+  "publicCheck": "PAID — proven on chain",
+  "createStatuses": [
+    "Reading the invoice…",
+    "Connecting wallet…",
+    "Encrypting the amount in your browser…",
+    "Confirm the transaction in your wallet…",
+    "User rejected the request."
+  ],
+  "walletCalls": [
+    "eth_requestAccounts",
+    "eth_chainId",
+    "eth_sendTransaction"
+  ],
+  "encryptAndSimulateSeconds": 18,
+  "encryptedAndSimulated": true
+}
