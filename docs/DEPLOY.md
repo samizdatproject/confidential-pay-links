@@ -36,17 +36,24 @@ scripts/deploy-sepolia.sh
 `deploy-sepolia.sh` does the following:
 - refuses any RPC whose chain id is not 11155111 (`LOCAL_TEST=1` allows anvil, to test the broadcast path; tested);
 - checks the balance;
-- runs Foundry from the keystore;
-- prints the explorer links and the verify command.
+- estimates each create with Sepolia's `eth_estimateGas` and sends it with `cast send --keystore` (limit: estimate + 20%, kept below the per-transaction cap);
+- prints the explorer links and the exact verify commands.
 
 Afterwards:
 
-1. Verify the source on Blockscout (no key needed):
-   `forge verify-contract <addr> src/ConfidentialPayLinks.sol:ConfidentialPayLinks --chain-id 11155111 --verifier blockscout --verifier-url https://eth-sepolia.blockscout.com/api/`
+1. Verify both contracts on Blockscout with the verify commands the script prints (no key needed). They include `--constructor-args` for the token list, and the reader.
 2. Put both addresses in `web/src/chains.ts` (`payLinks` and `reader` of `sepolia`), or build with `VITE_SEPOLIA_PAYLINKS=<addr> VITE_SEPOLIA_READER=<addr>`.
 3. Make one demo payment with `cUSDCMock`:
    - open your link, click **Get 100 test cUSDCMock** (this mints the public mock USDC and wraps it), then pay;
    - keep the tx hash for the submission.
+
+**Deployment history (Sepolia, 2026-10-10):**
+- `0x972bdbd2857fafc6b9f62eb3b3b595dd508efc16990b4ba132ddb8b011a47147`: `forge script`, 3.36M gas limit, out of gas.
+- `0x598036736c2fa296558ab5ed16d9a6810c7a14135a921c74eaa9fcd5813a7adb`: `forge script`, 5.16M gas limit, out of gas.
+- `0x9f81825cb0af86afec0459a089cf3d1515c6362d3c3377d50150780c29064c0a`: ConfidentialPayLinks `0x195a67B3fd34Bb2372EdcaB465ed56F2E005653d`, deployed by `deploy-sepolia.sh`.
+- `0xac5636fdc5a235ee6cf9dec3e7688c5788418ad040fdf3a9e7730253c207ead8`: PayLinksReader `0x2d7003f996491F965C3Fb32355Cc42150FE5f94D`.
+
+Both contracts are verified on Blockscout as a partial match: the builds carry no metadata hash, and the runtime bytecode is identical. The two failed attempts used `forge script`, before the switch to `cast send`.
 
 **Redeploying invalidates every outstanding link,** because the invoice id includes the contract address. Deploy once.
 

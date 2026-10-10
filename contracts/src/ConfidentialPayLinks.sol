@@ -279,7 +279,7 @@ contract ConfidentialPayLinks is IERC7984Receiver, ZamaEthereumConfig, Reentranc
         return _payments[invoiceId][index];
     }
 
-    /// @notice Up to `limit` payments of an invoice starting at `offset` (oldest first).
+    /// @notice Addresses the merchant added as viewers of this invoice (at most MAX_VIEWERS).
     function viewersOf(bytes32 invoiceId) external view returns (address[] memory) {
         return _viewers[invoiceId];
     }

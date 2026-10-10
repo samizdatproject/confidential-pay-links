@@ -32,15 +32,17 @@ GOT=$(cast chain-id --rpc-url "$RPC")
 [[ -f "$ETH_KEYSTORE" ]] || { echo "No keystore at $ETH_KEYSTORE (see docs/DEPLOY.md)." >&2; exit 1; }
 
 DEPLOYER=$(cast wallet address)
-forge build >/dev/null 2>&1
+forge build >/dev/null # errors stay visible on stderr
 LINKS_INIT="$(jq -r .bytecode.object out/ConfidentialPayLinks.sol/ConfidentialPayLinks.json)$(cast abi-encode 'f(address[])' "$TOKENS" | cut -c3-)"
 READER_INIT="$(jq -r .bytecode.object out/PayLinksReader.sol/PayLinksReader.json)"
 
 estimate() { cast estimate --rpc-url "$RPC" --from "$DEPLOYER" --create "$1"; }
 LINKS_EST=$(estimate "$LINKS_INIT")
 READER_EST=$(estimate "$READER_INIT")
-LINKS_GAS=$(( LINKS_EST * 12 / 10 ))
-READER_GAS=$(( READER_EST * 12 / 10 ))
+# Limit = estimate + 20%, but never above the per-transaction cap (a tx at the cap would be rejected outright).
+limit() { local g=$(( $1 * 12 / 10 )); (( g < TX_CAP )) && echo "$g" || echo $(( TX_CAP - 1 )); }
+LINKS_GAS=$(limit "$LINKS_EST")
+READER_GAS=$(limit "$READER_EST")
 BAL=$(cast balance "$DEPLOYER" --rpc-url "$RPC")
 PRICE=$(cast gas-price --rpc-url "$RPC")
 read -r COST OK < <(python3 -I -c 'import sys; b,g,p=map(int,sys.argv[1:]); c=g*p*2; print(c, int(b>c))' "$BAL" "$(( LINKS_GAS + READER_GAS ))" "$PRICE")
@@ -48,11 +50,11 @@ read -r COST OK < <(python3 -I -c 'import sys; b,g,p=map(int,sys.argv[1:]); c=g*
 echo "network:   Sepolia (chain $CHAIN, $RPC)"
 echo "deployer:  $DEPLOYER"
 echo "balance:   $(cast from-wei "$BAL") ETH"
-echo "ConfidentialPayLinks: eth_estimateGas $LINKS_EST gas -> limit $LINKS_GAS (+20%), initcode $(( (${#LINKS_INIT} - 2) / 2 )) bytes"
-echo "PayLinksReader:       eth_estimateGas $READER_EST gas -> limit $READER_GAS (+20%)"
+echo "ConfidentialPayLinks: eth_estimateGas $LINKS_EST gas -> limit $LINKS_GAS (+20%, capped below $TX_CAP), initcode $(( (${#LINKS_INIT} - 2) / 2 )) bytes"
+echo "PayLinksReader:       eth_estimateGas $READER_EST gas -> limit $READER_GAS (+20%, capped below $TX_CAP)"
 echo "budget:    $(( LINKS_GAS + READER_GAS )) gas @ 2x $(cast from-wei "$PRICE" gwei) gwei = ~$(cast from-wei "$COST") ETH"
-for g in "$LINKS_GAS" "$READER_GAS"; do
-  (( g < TX_CAP )) || { echo "A deploy needs $g gas, above the $TX_CAP per-transaction cap. Shrink the contract." >&2; exit 1; }
+for g in "$LINKS_EST" "$READER_EST"; do
+  (( g < TX_CAP )) || { echo "A deploy is estimated at $g gas, at or above the $TX_CAP per-transaction cap. Shrink the contract." >&2; exit 1; }
 done
 [[ "$OK" == 1 ]] || { echo "Balance too low: send Sepolia ETH (0.01 is plenty) to $DEPLOYER." >&2; exit 1; }
 if [[ "${DRY_RUN:-}" == 1 ]]; then echo "dry run: all checks passed, not broadcasting"; exit 0; fi

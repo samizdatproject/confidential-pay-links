@@ -4,7 +4,7 @@ Payment links for **ERC-7984 confidential tokens** (cUSDC, cUSDT, …) on the [Z
 
 A merchant types an amount and a memo and gets a link. The payer opens it and pays with one `confidentialTransferAndCall`. The contract compares what arrived with what was invoiced **without decrypting either number**. An exact payment is forwarded to the merchant in the same transaction, and anything else is refunded by the token. Someone watching the chain sees that a payment attempt happened, but not the amount and not whether it was accepted.
 
-- **Status:** testnet build. It is not deployed yet; see [Status](#status) below.
+- **Status:** live on Sepolia, verified, with a passing live end-to-end run (see [Status](#status)). The frontend is not hosted yet.
 - **Networks:** Sepolia, using Zama's mock wrappers `cUSDCMock` and `cUSDTMock`. There is also a local anvil chain running the cleartext FHEVM, for development.
 
 ## Why FHE, and what is new here
@@ -166,19 +166,35 @@ In the browser, add the local chain to MetaMask (RPC `http://127.0.0.1:8545`, ch
   6. The auditor is denied, then granted, then decrypts; a stranger is denied.
   7. Publish, then public decrypt without a wallet, then `confirmPaidStatus` on chain; the amount is still not publicly decryptable.
 - **Browser end to end (headless Chrome, production build with CSP and COOP/COEP; `crossOriginIsolated === true`; zero console errors).** A small injected EIP-1193 provider forwards to anvil dev accounts and stands in for MetaMask. The flow: create a link, use the faucet, decrypt the balance, pay, decrypt the receipt (accepted), check that a tampered link is blocked, decrypt everything in the dashboard, add a viewer, publish, check "PAID" publicly and record it on chain, decrypt as the auditor, and deny a stranger. Screenshots are in `e2e-results/screens/`.
+- **Live Sepolia end to end** (`web/e2e/sepolia-live.mjs`): the real relayer, KMS and cUSDCMock. Results and tx hashes are under [Status](#status).
 - **Real Sepolia, read-only, no funds.** The SDK's `node()` relayer encrypted an invoice amount against Zama's live testnet relayer. An `eth_call` of `createInvoice` then ran on Sepolia, with the contract injected through a state override, and the real InputVerifier accepted the proof. The same proof sent from another address was rejected. Result: `e2e-results/sepolia-readonly.json`.
 
 ## Status
 
 - **Built and tested locally.** Everything in [Tests](#tests) passes.
-- **Not deployed to Sepolia yet.** Sepolia charges about 1,600 gas per byte of deployed code, far more than a local simulation assumes, and caps a transaction at 16,777,216 gas (EIP-7825). The first deploy attempts ran out of gas: the original contract needed about 17.9M. It now fits:
-  - the paging views moved to a separate stateless `PayLinksReader`;
-  - the compiler is set for size (`via_ir`, `optimizer_runs = 1`);
-  - the merchant checks are shared.
+- **Deployed on Sepolia** (2026-10-10, with `scripts/deploy-sepolia.sh`). Both contracts are verified on Blockscout.
 
-  Sepolia's own `eth_estimateGas`, a read-only call, gives **12,867,663 gas for ConfidentialPayLinks** (8,788-byte initcode) and **3,374,791 for PayLinksReader**. Run `scripts/deploy-sepolia.sh` (see [docs/DEPLOY.md](docs/DEPLOY.md)).
+  | Contract | Address | Deploy tx |
+  |---|---|---|
+  | ConfidentialPayLinks (accepted tokens: cUSDCMock, cUSDTMock) | [`0x195a67B3fd34Bb2372EdcaB465ed56F2E005653d`](https://eth-sepolia.blockscout.com/address/0x195a67B3fd34Bb2372EdcaB465ed56F2E005653d) | [`0x9f81825c…`](https://eth-sepolia.blockscout.com/tx/0x9f81825cb0af86afec0459a089cf3d1515c6362d3c3377d50150780c29064c0a) |
+  | PayLinksReader | [`0x2d7003f996491F965C3Fb32355Cc42150FE5f94D`](https://eth-sepolia.blockscout.com/address/0x2d7003f996491F965C3Fb32355Cc42150FE5f94D) | [`0xac5636fd…`](https://eth-sepolia.blockscout.com/tx/0xac5636fdc5a235ee6cf9dec3e7688c5788418ad040fdf3a9e7730253c207ead8) |
+
+  Sepolia charges about 1,600 gas per byte of deployed code and caps a transaction at 16,777,216 gas (EIP-7825). The original contract needed about 17.9M, and two early `forge script` attempts ran out of gas. To make it fit:
+  - the paging views moved to the stateless `PayLinksReader`;
+  - the compiler is set for size (`via_ir`, `optimizer_runs = 1`).
+
+  Sepolia's `eth_estimateGas` now gives 12,867,663 gas for ConfidentialPayLinks and 3,374,791 for PayLinksReader.
+
+  The only source change since deployment is one NatSpec comment above `viewersOf`. Builds carry no metadata hash, so the runtime bytecode is still byte-identical to the deployed code (checked).
+- **Live Sepolia end to end: PASS** (`web/e2e/sepolia-live.mjs`, results in `e2e-results/sepolia-live.json`). It ran with the real Zama relayer and KMS and Zama's `cUSDCMock`, using throwaway testnet keys. No relayer retries were needed.
+  - **Setup:** the payer minted the public mock USDC and wrapped 100 into cUSDCMock.
+  - **(a) Exact payment, accepted.** Invoice for 25 ([`0x61158551…`](https://eth-sepolia.blockscout.com/tx/0x61158551cb20347f6d7bedc25c1a817458ebeeb7f08aae7f15d5ad64a3e4dcce)), paid 25 ([`0x20231adc…`](https://eth-sepolia.blockscout.com/tx/0x20231adce065ed9a244038dd636fe3e88550b3e1d26eadeea744515045679ba1)). The payer decrypts "accepted". Decrypted balances: payer 100 → 75, merchant 0 → 25. The merchant decrypts amount = 25 and paid = true.
+  - **(b) Wrong amount, refunded.** Invoice for 25 ([`0xbf11b328…`](https://eth-sepolia.blockscout.com/tx/0xbf11b32865ab355609e42273497799a1e95007c4a10be8146c7f39435499213e)), paid 24 ([`0x3b04bc40…`](https://eth-sepolia.blockscout.com/tx/0x3b04bc40ec81a4cec46044e648a1bcca768a4cfb298e01c141c1bf0fa7ea1b43)). The payer decrypts "refunded". The payer's balance is restored to 75, the merchant's stays at 25, and the invoice is unpaid.
+  - **(c) Public proof.** The merchant published (a)'s paid flag ([`0xb23603d5…`](https://eth-sepolia.blockscout.com/tx/0xb23603d5a736629fb7222c3787f3fb5af702d778e3b3e25751c6cc26af36f27b)). Public decryption returned `true`, and `confirmPaidStatus` ([`0xaf733dbb…`](https://eth-sepolia.blockscout.com/tx/0xaf733dbb50920acddb52bc3808fdc9d7f9ce13520b998d31eb15cd58efa19406)) set `paidConfirmed` to true on chain. The invoice amount is not publicly decryptable.
+  - **(d) Auditor.** The auditor was denied before the grant. After `addViewer` ([`0x6b603dde…`](https://eth-sepolia.blockscout.com/tx/0x6b603ddeb60c08abf52242d4431cfedaa10f979b638e5bfa05d90fafbd552725)) they decrypt amount = 25 and paid = true, and they still cannot decrypt invoice (b).
+  - **Gas.** On Sepolia a payment cost about 4.5–4.8M gas, compared with about 1.5M locally. The first payment to a merchant costs more because it creates their balance slot, and that happens whether the payment is accepted or refunded.
 - **Not audited.** Use it on testnets.
-- **Pre-submission checklist.** On Sepolia, make one exact payment (it should be accepted and forwarded) and one wrong-amount payment (it should be refunded), with the deployed contract and cUSDCMock. Keep both tx hashes.
+- **Pre-submission checklist.** On Sepolia, make one exact payment (accepted and forwarded) and one wrong-amount payment (refunded) with cUSDCMock. Done by script, see (a) and (b) above. Repeat it once through the hosted UI with MetaMask.
 
 ## Trust assumptions
 
@@ -195,7 +211,7 @@ Two independent AI-agent reviews were run on 2026-10-10. They gave the verdict "
 | M-1 | A merchant could forge "PAID" with a fake token. | Token allowlist. The docs and UI state that "paid" does not say who paid. |
 | M-2 | `publishPaidStatus` was authorised by ACL (which includes transient grants), and every unpaid invoice shared the global `asEbool(false)` handle. | Merchant-only role check. The paid flag starts as `FHE.ne(amount, amount)`, which is unique to each invoice. |
 | L-1 | The return value of the forward was ignored. | "Accepted" now also requires `moved == amount`. |
-| L-2 | Payment arrays were unbounded. | Paginated views (`getPayments`, `paymentsBy`); the UI shows the latest 20. |
+| L-2 | Payment arrays were unbounded. | Paged views live on the stateless `PayLinksReader` (`getPayments`, `invoicesOf`, `paymentsBy`); the main contract only has single-item getters and counts. The UI shows the latest 20. |
 | L-3 | The public check trusted the relayer's cleartext. | The UI simulates `confirmPaidStatus` (on-chain KMS signature check) before showing a result. |
 | L-4 | No anti-framing protection. | `frame-ancestors 'none'` and `X-Frame-Options: DENY` in `_headers` and `vercel.json`. |
 | L-5 | Unlisted tokens were shown under their own name. | Shown as "UNLISTED (claims …)", and Pay stays disabled until the payer ticks an explicit acknowledgement. |

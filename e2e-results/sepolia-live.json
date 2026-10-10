@@ -1,0 +1,99 @@
+{
+  "network": "sepolia",
+  "payLinks": "0x195a67B3fd34Bb2372EdcaB465ed56F2E005653d",
+  "reader": "0x2d7003f996491F965C3Fb32355Cc42150FE5f94D",
+  "token": "0x7c5BF43B851c1dff1a4feE8dB225b87f2C223639",
+  "started": "2026-10-10T07:43:31.571Z",
+  "txs": {
+    "mintUnderlying": {
+      "hash": "0xc3fedbf1347348cb8100e7a8edbbab5d06df7df21d4c1538a3983a93cf84b8a6",
+      "status": "success",
+      "gasUsed": "140976"
+    },
+    "approveUnderlying": {
+      "hash": "0xd841bc198ad52797adf83b137de448bf8e556ed7cb9a540f9712576d0c8070c8",
+      "status": "success",
+      "gasUsed": "128273"
+    },
+    "wrap": {
+      "hash": "0x1ae7fe656859eaa43c1dd50447e178f90fddc61a599f1f3c5b78b0b8ffdf0190",
+      "status": "success",
+      "gasUsed": "916143"
+    },
+    "createInvoice:a": {
+      "hash": "0x61158551cb20347f6d7bedc25c1a817458ebeeb7f08aae7f15d5ad64a3e4dcce",
+      "status": "success",
+      "gasUsed": "1504224"
+    },
+    "pay:a-exact": {
+      "hash": "0x20231adce065ed9a244038dd636fe3e88550b3e1d26eadeea744515045679ba1",
+      "status": "success",
+      "gasUsed": "4808374"
+    },
+    "createInvoice:b": {
+      "hash": "0xbf11b32865ab355609e42273497799a1e95007c4a10be8146c7f39435499213e",
+      "status": "success",
+      "gasUsed": "1406280"
+    },
+    "pay:b-wrong": {
+      "hash": "0x3b04bc40ec81a4cec46044e648a1bcca768a4cfb298e01c141c1bf0fa7ea1b43",
+      "status": "success",
+      "gasUsed": "4498884"
+    },
+    "publishPaidStatus:a": {
+      "hash": "0xb23603d5a736629fb7222c3787f3fb5af702d778e3b3e25751c6cc26af36f27b",
+      "status": "success",
+      "gasUsed": "263908"
+    },
+    "confirmPaidStatus:a": {
+      "hash": "0xaf733dbb50920acddb52bc3808fdc9d7f9ce13520b998d31eb15cd58efa19406",
+      "status": "success",
+      "gasUsed": "466435"
+    },
+    "addViewer:a": {
+      "hash": "0x6b603ddeb60c08abf52242d4431cfedaa10f979b638e5bfa05d90fafbd552725",
+      "status": "success",
+      "gasUsed": "603153"
+    }
+  },
+  "values": {
+    "payerStart": "100000000",
+    "merchantStart": "0",
+    "invoiceA": "0x418632d7d3600cf1f848184097189106748a7174315060f9ce7f5900689edbcd",
+    "a_payerSeesAccepted": true,
+    "a_payerSeesReceived": "25000000",
+    "check:a: payer decrypts accepted=true": true,
+    "payerAfterA": "75000000",
+    "merchantAfterA": "25000000",
+    "check:a: 25 moved payer -> merchant": true,
+    "a_merchantSeesAmount": "25000000",
+    "a_merchantSeesPaid": true,
+    "check:a: merchant decrypts amount=25, paid=true": true,
+    "invoiceB": "0xa6043efdd97c3661464a88cbdc72c0239fdec04ef8b79a9502251247cef5e5e7",
+    "b_payerSeesAccepted": false,
+    "b_payerSeesReceived": "24000000",
+    "check:b: payer decrypts accepted=false (refunded)": true,
+    "payerAfterB": "75000000",
+    "merchantAfterB": "25000000",
+    "check:b: payer balance restored, merchant unchanged": true,
+    "b_merchantSeesPaid": false,
+    "check:b: invoice unpaid": true,
+    "c_publicClear": true,
+    "check:c: public decryption says paid=true": true,
+    "c_paidConfirmed": true,
+    "check:c: paidConfirmed[a] == true on chain": true,
+    "check:c: invoice amount is NOT publicly decryptable": true,
+    "check:d: auditor denied before grant": true,
+    "d_auditorSeesAmount": "25000000",
+    "d_auditorSeesPaid": true,
+    "check:d: auditor decrypts amount=25, paid=true": true,
+    "check:d: auditor still cannot decrypt invoice b": true,
+    "check:reader lists both invoices": true
+  },
+  "retries": [],
+  "merchant": "0x35EAc981abD4Dc31B2Ffd2E3AdD6C2946cB10997",
+  "payer": "0x0eFbB421Fe820C3590da9A309dBcdE6f77e3b0fe",
+  "auditor": "0x5F6Aeb5AD653FE42960104C669d308d4E73ECD8B",
+  "result": "PASS",
+  "finished": "2026-10-10T07:47:44.081Z"
+}

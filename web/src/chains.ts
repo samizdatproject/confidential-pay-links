@@ -27,9 +27,10 @@ const SEPOLIA_RPC = 'https://ethereum-sepolia-rpc.publicnode.com';
 
 export const sepolia: Network = {
   chain: defineChain({ ...viemSepolia, rpcUrls: { default: { http: [SEPOLIA_RPC] } } }),
-  // Set after deployment (docs/DEPLOY.md). A build can also inject it with VITE_SEPOLIA_PAYLINKS.
-  payLinks: (import.meta.env.VITE_SEPOLIA_PAYLINKS as Address | undefined) || undefined,
-  reader: (import.meta.env.VITE_SEPOLIA_READER as Address | undefined) || undefined,
+  // Deployed 2026-10-10 with scripts/deploy-sepolia.sh (accepted tokens: cUSDCMock, cUSDTMock). A build can override
+  // them with VITE_SEPOLIA_PAYLINKS / VITE_SEPOLIA_READER. Redeploying invalidates every outstanding link.
+  payLinks: (import.meta.env.VITE_SEPOLIA_PAYLINKS as Address | undefined) || '0x195a67B3fd34Bb2372EdcaB465ed56F2E005653d',
+  reader: (import.meta.env.VITE_SEPOLIA_READER as Address | undefined) || '0x2d7003f996491F965C3Fb32355Cc42150FE5f94D',
   // https://docs.zama.org/protocol/protocol-apps/addresses/testnet/sepolia (mock wrappers with public mint)
   tokens: [
     {

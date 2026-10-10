@@ -33,15 +33,15 @@ A merchant creates an invoice whose amount is encrypted in the browser with the 
 **Links:**
 - Live app: ⟨https://…⟩ (Cloudflare Pages or Vercel, which serve COOP/COEP)
 - Repo: ⟨https://github.com/samizdatproject/confidential-pay-links⟩
-- Contract (Sepolia): ⟨0x…⟩, verified on Blockscout
-- Example payment tx (Sepolia): ⟨0x…⟩
+- Contract (Sepolia): `0x195a67B3fd34Bb2372EdcaB465ed56F2E005653d` (ConfidentialPayLinks), `0x2d7003f996491F965C3Fb32355Cc42150FE5f94D` (PayLinksReader). Both verified on Blockscout.
+- Example payments (Sepolia, cUSDCMock): exact payment accepted `0x20231adce065ed9a244038dd636fe3e88550b3e1d26eadeea744515045679ba1`; wrong amount refunded `0x3b04bc40ec81a4cec46044e648a1bcca768a4cfb298e01c141c1bf0fa7ea1b43`; public paid proof recorded on chain `0xaf733dbb50920acddb52bc3808fdc9d7f9ce13520b998d31eb15cd58efa19406`.
 - Video (3 min, own voice): ⟨link⟩
 
 **Tests:**
 - 49 Foundry tests on forge-fhevm, including regressions for two independent security reviews, (happy path, under- and over-payment, double pay, wrong token, ACL for merchant/payer/auditor/stranger, invoice id binding, reentrancy, public proof, fuzz).
 - 19 web unit tests.
 - A Node end-to-end run and a headless-browser end-to-end run against a local FHEVM with the real SDK.
-- A read-only check on Sepolia with the live relayer.
+- A live Sepolia end-to-end run with the real relayer and KMS: accepted payment, refunded payment, public proof confirmed on chain, auditor access.
 
 **Team:** samizdatproject (solo builder). ⟨Choose whether to be credited by GitHub/X or to stay anonymous; the form offers "No, I prefer to be anonymous".⟩
 
