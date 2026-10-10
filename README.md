@@ -78,7 +78,7 @@ link: #/pay?c=<chain>&id=<invoiceId>&s=<salt>&m=<memo>[&a=<amount>]
 - creation time
 - `detailsHash`
 - who sent a payment attempt to which invoice, and when
-- gas used, which is the same for an accepted and a refunded payment (1,424,400 vs 1,424,468 gas in the test)
+- gas used, which is the same for an accepted and a refunded payment (1,488,220 vs 1,488,291 gas in the test)
 - whether a viewer was added (the `ViewerAdded` event)
 
 **Encrypted:**
@@ -97,6 +97,7 @@ link: #/pay?c=<chain>&id=<invoiceId>&s=<salt>&m=<memo>[&a=<amount>]
 ```
 contracts/                 Foundry + forge-fhevm (real FHEVM host contracts, mock KMS/input signers)
   src/ConfidentialPayLinks.sol
+  src/PayLinksReader.sol   stateless paging views (kept out of the main contract to fit Sepolia's deploy gas)
   src/mocks/               MockUSD (public-mint ERC-20) + MockConfidentialUSD (OZ ERC7984ERC20Wrapper), local demos only
   test/ConfidentialPayLinks.t.sol
   script/Deploy.s.sol
@@ -108,7 +109,7 @@ web/                       Vite + TypeScript + viem + @zama-fhe/sdk (no framewor
   e2e/browser.mjs          headless Chrome end-to-end against the production build (CSP + COOP/COEP)
   e2e/sepolia-readonly.mjs real Sepolia check that spends nothing (see Tests)
 scripts/local-chain.sh     anvil + cleartext FHEVM host + contracts, writes web/.env.development.local
-scripts/deploy-sepolia.sh  guarded Sepolia deploy from an encrypted keystore
+scripts/deploy-sepolia.sh  guarded Sepolia deploy from an encrypted keystore (gas limits from Sepolia's eth_estimateGas +20%)
 docs/                      DEPLOY.md (deploy and hosting headers), DEMO_SCRIPT.md, SUBMISSION.md
 ```
 
@@ -147,7 +148,7 @@ In the browser, add the local chain to MetaMask (RPC `http://127.0.0.1:8545`, ch
     - the token allowlist;
     - an undelivered forward is not counted as paid.
   - Extra cases: a merchant paying their own invoice; a fixed payer paying through an operator; a payment exactly at expiry; cancelling after acceptance; a stale published "false"; 12 spam attempts with paginated views.
-  - Accepted and refunded payments emit the same sequence of events, and their gas differs by under 1,000 (measured: 68).
+  - Accepted and refunded payments emit the same sequence of events, and their gas differs by under 1,000 (measured: 71).
   - Fuzz: accepted if and only if the amounts are exactly equal and non-zero, and balances are conserved.
 - **Web unit tests (19).**
   - The invoice id vector shared with Solidity, and binding.
@@ -170,7 +171,12 @@ In the browser, add the local chain to MetaMask (RPC `http://127.0.0.1:8545`, ch
 ## Status
 
 - **Built and tested locally.** Everything in [Tests](#tests) passes.
-- **Not deployed to Sepolia yet.** Deployment needs a little Sepolia ETH, about 2.3M gas, which is under 0.001 ETH at current prices. No faucet that works without an account or a captcha was available, so nothing was deployed. Then run `scripts/deploy-sepolia.sh` (see [docs/DEPLOY.md](docs/DEPLOY.md)).
+- **Not deployed to Sepolia yet.** Sepolia charges about 1,600 gas per byte of deployed code, far more than a local simulation assumes, and caps a transaction at 16,777,216 gas (EIP-7825). The first deploy attempts ran out of gas: the original contract needed about 17.9M. It now fits:
+  - the paging views moved to a separate stateless `PayLinksReader`;
+  - the compiler is set for size (`via_ir`, `optimizer_runs = 1`);
+  - the merchant checks are shared.
+
+  Sepolia's own `eth_estimateGas`, a read-only call, gives **12,867,663 gas for ConfidentialPayLinks** (8,788-byte initcode) and **3,374,791 for PayLinksReader**. Run `scripts/deploy-sepolia.sh` (see [docs/DEPLOY.md](docs/DEPLOY.md)).
 - **Not audited.** Use it on testnets.
 - **Pre-submission checklist.** On Sepolia, make one exact payment (it should be accepted and forwarded) and one wrong-amount payment (it should be refunded), with the deployed contract and cUSDCMock. Keep both tx hashes.
 

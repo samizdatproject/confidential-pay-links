@@ -1,5 +1,5 @@
 import { encodeAbiParameters, getAddress, isAddress, type Address, type Hex, type PublicClient, type WalletClient } from 'viem';
-import { defaultChainId, explorerAddress, explorerTx, networkOf, networks, payLinksOf, tokenInfo, type TokenInfo } from './chains';
+import { defaultChainId, explorerAddress, explorerTx, networkOf, networks, payLinksOf, readerOf, tokenInfo, type TokenInfo } from './chains';
 import {
   erc7984Abi,
   isOpenPayer,
@@ -418,7 +418,7 @@ export async function viewMyPayments() {
     try {
       const chainId = defaultChainId();
       const s = await connect(chainId);
-      const refs = await readPayerPayments(s.client, payLinksOf(chainId), s.account);
+      const refs = await readPayerPayments(s.client, payLinksOf(chainId), readerOf(chainId), s.account);
       list.replaceChildren(...(refs.length ? refs.map((r) =>
         h('div', { class: 'linkrow' }, h('a', { href: `#/receipt?c=${chainId}&id=${r.invoiceId}&i=${r.index}` }, `${short(r.invoiceId)} · payment #${r.index}`))) : [h('p', {}, 'No payments from this address yet.')]));
       status.clear();
@@ -455,10 +455,10 @@ export function viewDashboard() {
       session = await connect(chainId);
       const contract = payLinksOf(chainId);
       status.pending('Reading your invoices…');
-      const ids = await readMerchantInvoiceIds(session.client, contract, session.account);
+      const ids = await readMerchantInvoiceIds(session.client, contract, readerOf(chainId), session.account);
       rows = await Promise.all(ids.reverse().map(async (id) => {
         const inv = (await readInvoice(session!.client, contract, id))!;
-        const recent = await readRecentPayments(session!.client, contract, id, RECENT_PAYMENTS);
+        const recent = await readRecentPayments(session!.client, contract, readerOf(chainId), id, RECENT_PAYMENTS);
         return { id, inv, tok: await tokenMeta(chainId, inv.token), link: savedLinkFor(chainId, id), payments: recent.items, paymentTotal: recent.total };
       }));
       status.clear();

@@ -25,6 +25,9 @@ import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/Reentrancy
 /// who needs to see the amount) access to one invoice's amount and paid flag. The paid flag alone can be made
 /// publicly decryptable to prove "paid" to anyone without revealing the amount.
 ///
+/// Paged list views live in a separate stateless contract (PayLinksReader) to keep this contract's code small:
+/// Sepolia prices deployed code high enough that a larger contract would not fit in one transaction.
+///
 /// There is no owner, no admin and no upgrade path. The set of accepted tokens is fixed at deployment (for example
 /// Zama's cUSDC / cUSDT wrappers): a merchant-chosen token could otherwise feed arbitrary handles into the callback.
 /// The contract never keeps payments: every accepted payment is forwarded in the same transaction. Tokens sent to
@@ -38,7 +41,6 @@ contract ConfidentialPayLinks is IERC7984Receiver, ZamaEthereumConfig, Reentranc
 
     /// @notice ERC-7984 tokens invoices may be denominated in. Fixed in the constructor; there is no admin.
     mapping(address token => bool) public isAcceptedToken;
-    address[] private _acceptedTokens;
 
     struct Invoice {
         address merchant; // creator; receives the payment
@@ -105,7 +107,6 @@ contract ConfidentialPayLinks is IERC7984Receiver, ZamaEthereumConfig, Reentranc
     error BadPaymentData();
     error ZeroViewer();
     error TooManyViewers(bytes32 invoiceId);
-    error NotAllowed(bytes32 invoiceId, address account);
     error TokenNotAccepted(address token);
     error NoTokens();
     error UnauthorizedHandle();
@@ -117,18 +118,15 @@ contract ConfidentialPayLinks is IERC7984Receiver, ZamaEthereumConfig, Reentranc
         for (uint256 i = 0; i < acceptedTokens.length; i++) {
             address t = acceptedTokens[i];
             if (t == address(0)) revert ZeroToken();
-            if (!isAcceptedToken[t]) {
-                isAcceptedToken[t] = true;
-                _acceptedTokens.push(t);
-            }
+            isAcceptedToken[t] = true;
         }
     }
 
-    modifier onlyMerchant(bytes32 invoiceId) {
-        address merchant = _invoices[invoiceId].merchant;
-        if (merchant == address(0)) revert UnknownInvoice(invoiceId);
-        if (msg.sender != merchant) revert NotMerchant(invoiceId);
-        _;
+    /// @dev The invoice, if msg.sender is its merchant (one shared check keeps the bytecode small).
+    function _merchantInvoice(bytes32 invoiceId) private view returns (Invoice storage inv) {
+        inv = _invoices[invoiceId];
+        if (inv.merchant == address(0)) revert UnknownInvoice(invoiceId);
+        if (msg.sender != inv.merchant) revert NotMerchant(invoiceId);
     }
 
     // ------------------------------------------------------------------ ids
@@ -193,14 +191,15 @@ contract ConfidentialPayLinks is IERC7984Receiver, ZamaEthereumConfig, Reentranc
     /// @notice Let `viewer` decrypt this invoice's amount and paid flag: an auditor, an accountant, or a payer of an
     ///         open link who needs to see the amount before paying. ACL grants cannot be revoked; a viewer keeps
     ///         access to the handles it was granted, and is also granted every later paid-flag update.
-    function addViewer(bytes32 invoiceId, address viewer) external onlyMerchant(invoiceId) {
+    function addViewer(bytes32 invoiceId, address viewer) external {
+        Invoice storage inv = _merchantInvoice(invoiceId);
         if (viewer == address(0)) revert ZeroViewer();
-        _addViewer(invoiceId, _invoices[invoiceId], viewer);
+        _addViewer(invoiceId, inv, viewer);
     }
 
     /// @notice Stop accepting payments. Already accepted payments are unaffected.
-    function cancelInvoice(bytes32 invoiceId) external onlyMerchant(invoiceId) {
-        _invoices[invoiceId].cancelled = true;
+    function cancelInvoice(bytes32 invoiceId) external {
+        _merchantInvoice(invoiceId).cancelled = true;
         emit InvoiceCancelled(invoiceId);
     }
 
@@ -243,9 +242,7 @@ contract ConfidentialPayLinks is IERC7984Receiver, ZamaEthereumConfig, Reentranc
     ///         Merchant only: publishing is the merchant's decision (it can also hint which attempt succeeded, since
     ///         attempts are public). Authorisation is by role, not by ACL, because ACL includes transient grants.
     function publishPaidStatus(bytes32 invoiceId) external {
-        Invoice storage inv = _invoices[invoiceId];
-        if (inv.merchant == address(0)) revert UnknownInvoice(invoiceId);
-        if (msg.sender != inv.merchant) revert NotAllowed(invoiceId, msg.sender);
+        Invoice storage inv = _merchantInvoice(invoiceId);
         FHE.makePubliclyDecryptable(inv.paid);
         publishedPaidHandle[invoiceId] = inv.paid;
         emit PaidStatusPublished(invoiceId, inv.paid);
@@ -283,24 +280,6 @@ contract ConfidentialPayLinks is IERC7984Receiver, ZamaEthereumConfig, Reentranc
     }
 
     /// @notice Up to `limit` payments of an invoice starting at `offset` (oldest first).
-    function getPayments(bytes32 invoiceId, uint256 offset, uint256 limit)
-        external
-        view
-        returns (Payment[] memory page)
-    {
-        Payment[] storage all = _payments[invoiceId];
-        if (offset >= all.length) return new Payment[](0);
-        uint256 end = offset + limit > all.length ? all.length : offset + limit;
-        page = new Payment[](end - offset);
-        for (uint256 i = offset; i < end; i++) {
-            page[i - offset] = all[i];
-        }
-    }
-
-    function acceptedTokens() external view returns (address[] memory) {
-        return _acceptedTokens;
-    }
-
     function viewersOf(bytes32 invoiceId) external view returns (address[] memory) {
         return _viewers[invoiceId];
     }
@@ -309,30 +288,18 @@ contract ConfidentialPayLinks is IERC7984Receiver, ZamaEthereumConfig, Reentranc
         return _merchantInvoices[merchant].length;
     }
 
-    /// @notice Up to `limit` invoice ids of `merchant`, newest last, starting at `offset`.
-    function invoicesOf(address merchant, uint256 offset, uint256 limit) external view returns (bytes32[] memory ids) {
-        bytes32[] storage all = _merchantInvoices[merchant];
-        if (offset >= all.length) return new bytes32[](0);
-        uint256 end = offset + limit > all.length ? all.length : offset + limit;
-        ids = new bytes32[](end - offset);
-        for (uint256 i = offset; i < end; i++) {
-            ids[i - offset] = all[i];
-        }
+    /// @notice The `index`-th invoice id of `merchant` (oldest first). Paged lists: see PayLinksReader.
+    function merchantInvoiceAt(address merchant, uint256 index) external view returns (bytes32) {
+        return _merchantInvoices[merchant][index];
     }
 
     function paymentCountBy(address payer) external view returns (uint256) {
         return _payerPayments[payer].length;
     }
 
-    /// @notice Up to `limit` of `payer`'s payments starting at `offset` (oldest first).
-    function paymentsBy(address payer, uint256 offset, uint256 limit) external view returns (PaymentRef[] memory page) {
-        PaymentRef[] storage all = _payerPayments[payer];
-        if (offset >= all.length) return new PaymentRef[](0);
-        uint256 end = offset + limit > all.length ? all.length : offset + limit;
-        page = new PaymentRef[](end - offset);
-        for (uint256 i = offset; i < end; i++) {
-            page[i - offset] = all[i];
-        }
+    /// @notice The `index`-th payment `payer` made (oldest first). Paged lists: see PayLinksReader.
+    function paymentRefAt(address payer, uint256 index) external view returns (PaymentRef memory) {
+        return _payerPayments[payer][index];
     }
 
     // ------------------------------------------------------------------ internal

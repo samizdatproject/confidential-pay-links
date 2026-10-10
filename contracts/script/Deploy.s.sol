@@ -3,6 +3,7 @@ pragma solidity ^0.8.27;
 
 import {Script, console} from "forge-std/Script.sol";
 import {ConfidentialPayLinks} from "../src/ConfidentialPayLinks.sol";
+import {PayLinksReader} from "../src/PayLinksReader.sol";
 import {MockUSD} from "../src/mocks/MockUSD.sol";
 import {MockConfidentialUSD} from "../src/mocks/MockConfidentialUSD.sol";
 
@@ -10,7 +11,9 @@ import {MockConfidentialUSD} from "../src/mocks/MockConfidentialUSD.sol";
 ///   - Sepolia: Zama's cUSDCMock and cUSDTMock wrappers (docs.zama.org protocol-apps/addresses/testnet/sepolia).
 ///   - Local 31337: deploys a test ERC-20 + ERC-7984 wrapper first and accepts that.
 ///
-///   forge script script/Deploy.s.sol --rpc-url <url> --broadcast --account <keystore>
+///   Local: forge script script/Deploy.s.sol --rpc-url http://127.0.0.1:8545 --broadcast (scripts/local-chain.sh)
+///   Sepolia: use scripts/deploy-sepolia.sh. Forge's local simulation under-counts Sepolia's code-deposit cost, so that
+///   script sends each create with `cast send` and a gas limit from Sepolia's own eth_estimateGas (+20%).
 contract Deploy is Script {
     address constant SEPOLIA_CUSDC_MOCK = 0x7c5BF43B851c1dff1a4feE8dB225b87f2C223639;
     address constant SEPOLIA_CUSDT_MOCK = 0x4E7B06D78965594eB5EF5414c357ca21E1554491;
@@ -34,6 +37,8 @@ contract Deploy is Script {
         }
         ConfidentialPayLinks links = new ConfidentialPayLinks(tokens);
         console.log("ConfidentialPayLinks:", address(links));
+        PayLinksReader reader = new PayLinksReader();
+        console.log("PayLinksReader:", address(reader));
         vm.stopBroadcast();
     }
 }

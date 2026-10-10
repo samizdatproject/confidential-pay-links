@@ -35,13 +35,16 @@ addr() { jq -r --arg n "$1" '[.transactions[] | select(.contractName == $n)][0].
 LINKS=$(cast to-check-sum-address "$(addr ConfidentialPayLinks)")
 USD=$(cast to-check-sum-address "$(addr MockUSD)")
 CUSD=$(cast to-check-sum-address "$(addr MockConfidentialUSD)")
+READER=$(cast to-check-sum-address "$(addr PayLinksReader)")
 cat >"$ROOT/web/.env.development.local" <<ENV
 # Written by scripts/local-chain.sh — local anvil only.
 VITE_LOCAL_PAYLINKS=$LINKS
 VITE_LOCAL_TOKEN=$CUSD
 VITE_LOCAL_UNDERLYING=$USD
+VITE_LOCAL_READER=$READER
 ENV
 echo "ConfidentialPayLinks $LINKS"
 echo "MockUSD              $USD"
 echo "MockConfidentialUSD  $CUSD"
+echo "PayLinksReader       $READER"
 echo "Wrote web/.env.development.local. Next: cd web && npm run dev   (or npm run e2e)"

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { payLinksAbi } from '../src/abi.generated';
+import { payLinksAbi, payLinksReaderAbi } from '../src/abi.generated';
 import {
   checkDetails,
   decodeLink,
@@ -128,5 +128,9 @@ describe('ABI', () => {
       readFileSync(fileURLToPath(new URL('../../contracts/out/ConfidentialPayLinks.sol/ConfidentialPayLinks.json', import.meta.url)), 'utf8'),
     );
     expect(payLinksAbi).toEqual(art.abi);
+    const reader = JSON.parse(
+      readFileSync(fileURLToPath(new URL('../../contracts/out/PayLinksReader.sol/PayLinksReader.json', import.meta.url)), 'utf8'),
+    );
+    expect(payLinksReaderAbi).toEqual(reader.abi);
   });
 });

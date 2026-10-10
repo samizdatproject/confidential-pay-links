@@ -10,6 +10,7 @@ import {ERC7984} from "@openzeppelin/confidential-contracts/token/ERC7984/ERC798
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
 import {ConfidentialPayLinks} from "../src/ConfidentialPayLinks.sol";
+import {PayLinksReader} from "../src/PayLinksReader.sol";
 import {MockUSD} from "../src/mocks/MockUSD.sol";
 import {MockConfidentialUSD} from "../src/mocks/MockConfidentialUSD.sol";
 
@@ -65,6 +66,7 @@ contract EvilToken {
 
 contract ConfidentialPayLinksTest is FhevmTest {
     ConfidentialPayLinks internal links;
+    PayLinksReader internal reader;
     MockUSD internal usd;
     MockConfidentialUSD internal cusd;
     MockUSD internal usd2;
@@ -94,6 +96,7 @@ contract ConfidentialPayLinksTest is FhevmTest {
         usd2 = new MockUSD();
         otherToken = new MockConfidentialUSD(usd2, "Other", "OTH");
         links = new ConfidentialPayLinks(_tokens(address(cusd), address(otherToken)));
+        reader = new PayLinksReader();
 
         dealConfidential(IERC7984ERC20Wrapper(address(cusd)), payer, FUNDS);
         dealConfidential(IERC7984ERC20Wrapper(address(otherToken)), payer, FUNDS);
@@ -182,7 +185,7 @@ contract ConfidentialPayLinksTest is FhevmTest {
         assertEq(p.payer, payer);
         assertEq(decrypt(p.received), PRICE);
         assertTrue(decrypt(p.accepted));
-        ConfidentialPayLinks.PaymentRef[] memory refs = links.paymentsBy(payer, 0, 10);
+        ConfidentialPayLinks.PaymentRef[] memory refs = reader.paymentsBy(links, payer, 0, 10);
         assertEq(refs.length, 1);
         assertEq(refs[0].invoiceId, id);
     }
@@ -199,8 +202,8 @@ contract ConfidentialPayLinksTest is FhevmTest {
         assertFalse(inv.cancelled);
         assertEq(decrypt(inv.amount), PRICE);
         assertEq(links.invoiceCountOf(merchant), 1);
-        assertEq(links.invoicesOf(merchant, 0, 10)[0], id);
-        assertEq(links.invoicesOf(merchant, 1, 10).length, 0);
+        assertEq(reader.invoicesOf(links, merchant, 0, 10)[0], id);
+        assertEq(reader.invoicesOf(links, merchant, 1, 10).length, 0);
     }
 
     // ------------------------------------------------------------------ wrong amounts
@@ -577,7 +580,7 @@ contract ConfidentialPayLinksTest is FhevmTest {
     function test_publicProof_onlyAuthorizedPublish() public {
         bytes32 id = _createOpen(PRICE);
         vm.prank(stranger);
-        vm.expectRevert(abi.encodeWithSelector(ConfidentialPayLinks.NotAllowed.selector, id, stranger));
+        vm.expectRevert(abi.encodeWithSelector(ConfidentialPayLinks.NotMerchant.selector, id));
         links.publishPaidStatus(id);
         vm.expectRevert(abi.encodeWithSelector(ConfidentialPayLinks.NothingPublished.selector, id));
         links.confirmPaidStatus(id, abi.encode(true), "");
@@ -585,7 +588,7 @@ contract ConfidentialPayLinksTest is FhevmTest {
         vm.prank(merchant);
         links.addViewer(id, auditor);
         vm.prank(auditor);
-        vm.expectRevert(abi.encodeWithSelector(ConfidentialPayLinks.NotAllowed.selector, id, auditor));
+        vm.expectRevert(abi.encodeWithSelector(ConfidentialPayLinks.NotMerchant.selector, id));
         links.publishPaidStatus(id);
         vm.prank(merchant);
         links.publishPaidStatus(id);
@@ -706,7 +709,7 @@ contract ConfidentialPayLinksTest is FhevmTest {
         assertFalse(_paid(a));
         assertFalse(_paid(b));
         vm.prank(merchant); // merchant of A cannot publish B
-        vm.expectRevert(abi.encodeWithSelector(ConfidentialPayLinks.NotAllowed.selector, b, merchant));
+        vm.expectRevert(abi.encodeWithSelector(ConfidentialPayLinks.NotMerchant.selector, b));
         links.publishPaidStatus(b);
         // ...nor decrypt B's flag through a shared handle.
         _assertNoAccess(ebool.unwrap(links.getInvoice(b).paid), merchant, signUserDecrypt(MERCHANT_PK, address(links)));
@@ -719,7 +722,7 @@ contract ConfidentialPayLinksTest is FhevmTest {
         new ConfidentialPayLinks(_tokens(address(0)));
         assertTrue(links.isAcceptedToken(address(cusd)));
         assertFalse(links.isAcceptedToken(address(usd)));
-        assertEq(links.acceptedTokens().length, 2);
+        assertTrue(links.isAcceptedToken(address(otherToken)));
         (externalEuint64 enc, bytes memory proof) = encryptUint64(PRICE, merchant, address(links));
         vm.prank(merchant);
         vm.expectRevert(abi.encodeWithSelector(ConfidentialPayLinks.TokenNotAccepted.selector, address(usd)));
@@ -802,11 +805,11 @@ contract ConfidentialPayLinksTest is FhevmTest {
             _pay(stranger, cusd, id, 1);
         }
         assertEq(links.paymentCount(id), 12);
-        assertEq(links.getPayments(id, 0, 5).length, 5);
-        assertEq(links.getPayments(id, 10, 5).length, 2);
-        assertEq(links.getPayments(id, 12, 5).length, 0);
+        assertEq(reader.getPayments(links, id, 0, 5).length, 5);
+        assertEq(reader.getPayments(links, id, 10, 5).length, 2);
+        assertEq(reader.getPayments(links, id, 12, 5).length, 0);
         assertEq(links.paymentCountBy(stranger), 12);
-        assertEq(links.paymentsBy(stranger, 11, 100).length, 1);
+        assertEq(reader.paymentsBy(links, stranger, 11, 100).length, 1);
         // A legitimate payment after spam still costs about the same (no per-attempt loops in the payment path).
         (externalEuint64 enc, bytes memory proof) = encryptUint64(PRICE, payer, address(cusd));
         vm.prank(payer);

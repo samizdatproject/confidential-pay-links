@@ -7,7 +7,9 @@ script = "script"
 solc = "0.8.27"
 evm_version = "cancun"
 optimizer = true
-optimizer_runs = 800
+optimizer_runs = 1
+via_ir = true
+# Size over speed: Sepolia charges ~1,600 gas per deployed byte and caps a tx at 16,777,216 gas (EIP-7825).
 cbor_metadata = false
 bytecode_hash = "none"
 
@@ -34,4 +36,6 @@ recursive_deps = false
 # `reentrancy-events` fires on the FHE ACL/executor host calls (FHE.allow, FHE.select, ...), which are trusted
 # system contracts, not reentrancy vectors. The one untrusted call (the token) runs under nonReentrant, after all
 # state and events are written. `block-timestamp` is the intended invoice expiry check.
-exclude_lints = ["reentrancy-events", "block-timestamp"]
+# `calls-loop` / `require-revert-in-loop`: PayLinksReader is a view-only pager over a bounded page, and the
+# constructor validates its token list in a loop.
+exclude_lints = ["reentrancy-events", "block-timestamp", "calls-loop", "require-revert-in-loop"]

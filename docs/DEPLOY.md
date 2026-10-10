@@ -4,7 +4,16 @@
 
 The deploy script fixes the token allowlist to Zama's `cUSDCMock` and `cUSDTMock` (see `contracts/script/Deploy.s.sol`). It cannot be changed later, because there is no admin.
 
-You need a little Sepolia ETH. Deploying costs about 2.3M gas; at the ~0.001 gwei Sepolia gas price seen on 2026-10-10 that is about 0.0000025 ETH, so **0.01 Sepolia ETH covers the deploy and hundreds of demo payments**.
+You need a little Sepolia ETH. The deploy takes two transactions.
+
+| Contract | Sepolia `eth_estimateGas` | Gas limit sent (+20%) |
+|---|---|---|
+| ConfidentialPayLinks | 12,867,663 | 15,441,195 |
+| PayLinksReader (stateless paging views) | 3,374,791 | 4,049,749 |
+
+These are far above a local simulation (1.86M on anvil), because Sepolia charges about 1,600 gas per byte of deployed code. Each transaction is also capped at 16,777,216 gas (EIP-7825). For both reasons the script does not use `forge script --broadcast`, whose limits come from a local simulation. Instead it sends each create with `cast send --gas-limit <Sepolia estimate + 20%>`, and it refuses to send if a limit would exceed the cap. `DRY_RUN=1` prints the estimates.
+
+At ~0.0001 gwei, both deploys together cost well under 0.00001 ETH, and **0.01 Sepolia ETH is plenty**.
 
 **Option A: the throwaway deployer that was prepared locally.**
 - Address: `0x881C873cd0dc9a72E4e164e08084D51CeeeE1cf5`.
@@ -25,7 +34,7 @@ scripts/deploy-sepolia.sh
 ```
 
 `deploy-sepolia.sh` does the following:
-- refuses any RPC whose chain id is not 11155111;
+- refuses any RPC whose chain id is not 11155111 (`LOCAL_TEST=1` allows anvil, to test the broadcast path; tested);
 - checks the balance;
 - runs Foundry from the keystore;
 - prints the explorer links and the verify command.
@@ -34,7 +43,7 @@ Afterwards:
 
 1. Verify the source on Blockscout (no key needed):
    `forge verify-contract <addr> src/ConfidentialPayLinks.sol:ConfidentialPayLinks --chain-id 11155111 --verifier blockscout --verifier-url https://eth-sepolia.blockscout.com/api/`
-2. Put the address in `web/src/chains.ts` (`payLinks` of `sepolia`), or build with `VITE_SEPOLIA_PAYLINKS=<addr>`.
+2. Put both addresses in `web/src/chains.ts` (`payLinks` and `reader` of `sepolia`), or build with `VITE_SEPOLIA_PAYLINKS=<addr> VITE_SEPOLIA_READER=<addr>`.
 3. Make one demo payment with `cUSDCMock`:
    - open your link, click **Get 100 test cUSDCMock** (this mints the public mock USDC and wraps it), then pay;
    - keep the tx hash for the submission.

@@ -14,6 +14,8 @@ export type Network = {
   chain: Chain;
   /** ConfidentialPayLinks deployment on this chain, if any. */
   payLinks?: Address;
+  /** PayLinksReader (stateless paging helper) on this chain. */
+  reader?: Address;
   tokens: TokenInfo[];
   /** 'sepolia' uses Zama's hosted testnet relayer; 'local' uses the SDK's cleartext relayer against anvil. */
   relayer: 'sepolia' | 'local';
@@ -27,6 +29,7 @@ export const sepolia: Network = {
   chain: defineChain({ ...viemSepolia, rpcUrls: { default: { http: [SEPOLIA_RPC] } } }),
   // Set after deployment (docs/DEPLOY.md). A build can also inject it with VITE_SEPOLIA_PAYLINKS.
   payLinks: (import.meta.env.VITE_SEPOLIA_PAYLINKS as Address | undefined) || undefined,
+  reader: (import.meta.env.VITE_SEPOLIA_READER as Address | undefined) || undefined,
   // https://docs.zama.org/protocol/protocol-apps/addresses/testnet/sepolia (mock wrappers with public mint)
   tokens: [
     {
@@ -62,6 +65,7 @@ if (import.meta.env.VITE_LOCAL_PAYLINKS) {
       testnet: true,
     }),
     payLinks: import.meta.env.VITE_LOCAL_PAYLINKS as Address,
+    reader: import.meta.env.VITE_LOCAL_READER as Address,
     tokens: [
       {
         address: import.meta.env.VITE_LOCAL_TOKEN as Address,
@@ -84,6 +88,12 @@ export function networkOf(chainId: number): Network {
 export function payLinksOf(chainId: number): Address {
   const a = networkOf(chainId).payLinks;
   if (!a) throw new Error(`ConfidentialPayLinks is not deployed on ${networkOf(chainId).chain.name} yet.`);
+  return a;
+}
+
+export function readerOf(chainId: number): Address {
+  const a = networkOf(chainId).reader;
+  if (!a) throw new Error(`PayLinksReader is not deployed on ${networkOf(chainId).chain.name} yet.`);
   return a;
 }
 

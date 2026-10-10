@@ -1,7 +1,7 @@
 import { decodeEventLog, parseAbi, type Address, type Hex, type PublicClient, type TransactionReceipt } from 'viem';
-import { payLinksAbi } from './abi.generated';
+import { payLinksAbi, payLinksReaderAbi } from './abi.generated';
 
-export { payLinksAbi };
+export { payLinksAbi, payLinksReaderAbi };
 
 /** The ERC-7984 calls this app uses (OpenZeppelin confidential-contracts v0.5). */
 export const erc7984Abi = parseAbi([
@@ -62,32 +62,32 @@ export async function readPayment(client: PublicClient, payLinks: Address, invoi
 }
 
 /** The latest `limit` payment attempts of an invoice (attempts are public and can be spammed, so never read all). */
-export async function readRecentPayments(client: PublicClient, payLinks: Address, invoiceId: Hex, limit = 20) {
+export async function readRecentPayments(client: PublicClient, payLinks: Address, reader: Address, invoiceId: Hex, limit = 20) {
   const total = Number(await client.readContract({ address: payLinks, abi: payLinksAbi, functionName: 'paymentCount', args: [invoiceId] }));
   const offset = Math.max(0, total - limit);
   const ps = await client.readContract({
-    address: payLinks, abi: payLinksAbi, functionName: 'getPayments', args: [invoiceId, BigInt(offset), BigInt(limit)],
+    address: reader, abi: payLinksReaderAbi, functionName: 'getPayments', args: [payLinks, invoiceId, BigInt(offset), BigInt(limit)],
   });
   const items: Payment[] = ps.map((p, i) => ({ index: offset + i, payer: p.payer, paidAt: Number(p.paidAt), received: p.received, accepted: p.accepted }));
   return { total, items };
 }
 
-export async function readMerchantInvoiceIds(client: PublicClient, payLinks: Address, merchant: Address): Promise<Hex[]> {
+export async function readMerchantInvoiceIds(client: PublicClient, payLinks: Address, reader: Address, merchant: Address): Promise<Hex[]> {
   const n = await client.readContract({ address: payLinks, abi: payLinksAbi, functionName: 'invoiceCountOf', args: [merchant] });
   const ids: Hex[] = [];
   for (let off = 0n; off < n; off += 100n) {
     ids.push(
-      ...(await client.readContract({ address: payLinks, abi: payLinksAbi, functionName: 'invoicesOf', args: [merchant, off, 100n] })),
+      ...(await client.readContract({ address: reader, abi: payLinksReaderAbi, functionName: 'invoicesOf', args: [payLinks, merchant, off, 100n] })),
     );
   }
   return ids;
 }
 
 /** The payer's latest `limit` payments, newest first. */
-export async function readPayerPayments(client: PublicClient, payLinks: Address, payer: Address, limit = 50) {
+export async function readPayerPayments(client: PublicClient, payLinks: Address, reader: Address, payer: Address, limit = 50) {
   const total = Number(await client.readContract({ address: payLinks, abi: payLinksAbi, functionName: 'paymentCountBy', args: [payer] }));
   const offset = Math.max(0, total - limit);
-  const refs = await client.readContract({ address: payLinks, abi: payLinksAbi, functionName: 'paymentsBy', args: [payer, BigInt(offset), BigInt(limit)] });
+  const refs = await client.readContract({ address: reader, abi: payLinksReaderAbi, functionName: 'paymentsBy', args: [payLinks, payer, BigInt(offset), BigInt(limit)] });
   return refs.map((r) => ({ invoiceId: r.invoiceId, index: Number(r.index) })).reverse();
 }
 

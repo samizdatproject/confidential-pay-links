@@ -26,19 +26,6 @@ export const payLinksAbi = [
   },
   {
     "type": "function",
-    "name": "acceptedTokens",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address[]",
-        "internalType": "address[]"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "addViewer",
     "inputs": [
       {
@@ -273,57 +260,6 @@ export const payLinksAbi = [
   },
   {
     "type": "function",
-    "name": "getPayments",
-    "inputs": [
-      {
-        "name": "invoiceId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "offset",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "limit",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "page",
-        "type": "tuple[]",
-        "internalType": "struct ConfidentialPayLinks.Payment[]",
-        "components": [
-          {
-            "name": "payer",
-            "type": "address",
-            "internalType": "address"
-          },
-          {
-            "name": "paidAt",
-            "type": "uint48",
-            "internalType": "uint48"
-          },
-          {
-            "name": "received",
-            "type": "bytes32",
-            "internalType": "euint64"
-          },
-          {
-            "name": "accepted",
-            "type": "bytes32",
-            "internalType": "ebool"
-          }
-        ]
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "invoiceCountOf",
     "inputs": [
       {
@@ -367,35 +303,6 @@ export const payLinksAbi = [
   },
   {
     "type": "function",
-    "name": "invoicesOf",
-    "inputs": [
-      {
-        "name": "merchant",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "offset",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "limit",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "ids",
-        "type": "bytes32[]",
-        "internalType": "bytes32[]"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "isAcceptedToken",
     "inputs": [
       {
@@ -409,6 +316,30 @@ export const payLinksAbi = [
         "name": "",
         "type": "bool",
         "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "merchantInvoiceAt",
+    "inputs": [
+      {
+        "name": "merchant",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "index",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ],
     "stateMutability": "view"
@@ -506,7 +437,7 @@ export const payLinksAbi = [
   },
   {
     "type": "function",
-    "name": "paymentsBy",
+    "name": "paymentRefAt",
     "inputs": [
       {
         "name": "payer",
@@ -514,21 +445,16 @@ export const payLinksAbi = [
         "internalType": "address"
       },
       {
-        "name": "offset",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "limit",
+        "name": "index",
         "type": "uint256",
         "internalType": "uint256"
       }
     ],
     "outputs": [
       {
-        "name": "page",
-        "type": "tuple[]",
-        "internalType": "struct ConfidentialPayLinks.PaymentRef[]",
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct ConfidentialPayLinks.PaymentRef",
         "components": [
           {
             "name": "invoiceId",
@@ -826,22 +752,6 @@ export const payLinksAbi = [
   },
   {
     "type": "error",
-    "name": "NotAllowed",
-    "inputs": [
-      {
-        "name": "invoiceId",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "account",
-        "type": "address",
-        "internalType": "address"
-      }
-    ]
-  },
-  {
-    "type": "error",
     "name": "NotInvoicePayer",
     "inputs": [
       {
@@ -967,5 +877,144 @@ export const payLinksAbi = [
     "type": "error",
     "name": "ZeroViewer",
     "inputs": []
+  }
+] as const;
+
+export const payLinksReaderAbi = [
+  {
+    "type": "function",
+    "name": "getPayments",
+    "inputs": [
+      {
+        "name": "links",
+        "type": "address",
+        "internalType": "contract ConfidentialPayLinks"
+      },
+      {
+        "name": "invoiceId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "offset",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "limit",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "page",
+        "type": "tuple[]",
+        "internalType": "struct ConfidentialPayLinks.Payment[]",
+        "components": [
+          {
+            "name": "payer",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "paidAt",
+            "type": "uint48",
+            "internalType": "uint48"
+          },
+          {
+            "name": "received",
+            "type": "bytes32",
+            "internalType": "euint64"
+          },
+          {
+            "name": "accepted",
+            "type": "bytes32",
+            "internalType": "ebool"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "invoicesOf",
+    "inputs": [
+      {
+        "name": "links",
+        "type": "address",
+        "internalType": "contract ConfidentialPayLinks"
+      },
+      {
+        "name": "merchant",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "offset",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "limit",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "ids",
+        "type": "bytes32[]",
+        "internalType": "bytes32[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "paymentsBy",
+    "inputs": [
+      {
+        "name": "links",
+        "type": "address",
+        "internalType": "contract ConfidentialPayLinks"
+      },
+      {
+        "name": "payer",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "offset",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "limit",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "page",
+        "type": "tuple[]",
+        "internalType": "struct ConfidentialPayLinks.PaymentRef[]",
+        "components": [
+          {
+            "name": "invoiceId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "index",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
   }
 ] as const;
