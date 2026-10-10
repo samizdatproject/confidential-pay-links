@@ -16,6 +16,7 @@ import {
   type Invoice,
 } from './contract';
 import { encryptU64, fheFor, withRetry } from './fhe';
+import { gasLimitFor, looksOutOfGas } from './gas';
 import {
   checkDetails,
   decodeLink,
@@ -45,17 +46,39 @@ async function connect(chainId: number): Promise<Session> {
 
 const sdkOf = (s: Session) => fheFor(s.chainId, s.client, s.wallet);
 
+/** A transaction that reached the chain and reverted. Carries an explorer link for the status line. */
+export class TxRevertedError extends Error {
+  constructor(message: string, readonly explorerUrl?: string) {
+    super(message);
+  }
+}
+
 async function sendTx(
   s: Session,
   req: { address: Address; abi: readonly unknown[]; functionName: string; args: readonly unknown[] },
   say: (m: string) => void,
 ) {
   const { request } = await s.client.simulateContract({ ...req, account: s.account } as Parameters<PublicClient['simulateContract']>[0]);
+  // Explicit gas: wallet estimates (especially through smart-account wrappers) have run out of gas on FHE calls.
+  let estimate: bigint | undefined;
+  try {
+    estimate = await s.client.estimateContractGas({ ...req, account: s.account } as Parameters<PublicClient['estimateContractGas']>[0]);
+  } catch {
+    estimate = undefined; // the floor still applies
+  }
+  const gas = gasLimitFor(req.functionName, estimate);
   say('Confirm the transaction in your wallet…');
-  const hash = await s.wallet.writeContract(request as Parameters<WalletClient['writeContract']>[0]);
+  const hash = await s.wallet.writeContract({ ...(request as object), gas } as Parameters<WalletClient['writeContract']>[0]);
   say(`Sent ${short(hash)}. Waiting for the block…`);
   const r = await s.client.waitForTransactionReceipt({ hash });
-  if (r.status !== 'success') throw new Error(`Transaction ${short(hash)} reverted`);
+  if (r.status !== 'success') {
+    const tx = await s.client.getTransaction({ hash }).catch(() => undefined);
+    const oog = looksOutOfGas(r.gasUsed, tx?.gas);
+    throw new TxRevertedError(
+      `Transaction ${short(hash)} reverted${oog ? ': it most likely ran out of gas (your wallet may have lowered the gas limit). Try again and keep the suggested gas limit.' : '. Try again; if it keeps failing, open it in the explorer.'}`,
+      explorerTx(s.chainId, hash),
+    );
+  }
   return r;
 }
 

@@ -75,6 +75,8 @@ export function statusLine() {
     error(e: unknown, retry?: () => void) {
       el.className = 'status error';
       el.replaceChildren(errText(e));
+      const url = (e as { explorerUrl?: string } | null)?.explorerUrl;
+      if (url) el.append(' ', h('a', { href: url, target: '_blank', rel: 'noopener' }, 'View in explorer'));
       if (retry) el.append(' ', h('button', { type: 'button', class: 'ghost small', onclick: retry }, 'Retry'));
     },
     clear() {

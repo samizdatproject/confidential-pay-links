@@ -68,6 +68,8 @@ link: #/pay?c=<chain>&id=<invoiceId>&s=<salt>&m=<memo>[&a=<amount>]
 
 **Wallets.** Wallets are discovered with EIP-6963. When several are installed (for example Phantom and MetaMask, which both claim `window.ethereum`), a picker shows each wallet's announced name and icon. The choice is remembered in localStorage, and a "switch wallet" link in the header forgets it. `window.ethereum` is used only when no wallet announces itself.
 
+**Gas.** Every write sends an explicit gas limit: max(the connected account's `eth_estimateGas` × 1.5, a per-function floor), capped below 16,777,216 (`web/src/gas.ts`). The floors are Sepolia measurements × about 1.25 plus about 300k for smart-account wrappers. Examples: createInvoice 2.8M, pay 6.5M, wrap 1.5M. This was added after a real createInvoice from an EIP-7702 MetaMask account ran out of gas at a wallet-chosen limit of 1.83M. A reverted transaction shows an explorer link and says when it most likely ran out of gas.
+
 **Outages.** Relayer and decryption calls retry with backoff when the error is transient (HTTP 5xx or 429, network errors, `DECRYPTION_FAILED`). The UI shows "Retrying in N s…" and then a Retry button. Sepolia decryption had real outages in September 2026, and payments already on chain are unaffected by them.
 
 ## Privacy model: what is public

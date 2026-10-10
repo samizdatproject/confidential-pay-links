@@ -30,6 +30,7 @@ function standInWallet(account, rpc) {
       window.__walletCalls.push(method);
       if (method === 'eth_requestAccounts' || method === 'eth_accounts') return [account];
       if (method === 'eth_chainId') return '0xaa36a7';
+      if (method === 'eth_sendTransaction') window.__sentGas = params?.[0]?.gas;
       if (method === 'eth_sendTransaction' || method.startsWith('eth_sign') || method.startsWith('personal_sign'))
         throw Object.assign(new Error('User rejected the request (stand-in wallet)'), { code: 4001 });
       const r = await fetch(rpc, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: ++id, method, params }) });
@@ -70,6 +71,7 @@ try {
   }
   out.createStatuses = await p.evaluate(() => window.__statuses);
   out.walletCalls = await p.evaluate(() => [...new Set(window.__walletCalls)]);
+  out.sentGasLimit = await p.evaluate(() => (window.__sentGas ? BigInt(window.__sentGas).toString() : null));
   out.encryptAndSimulateSeconds = Math.round((Date.now() - t0) / 1000);
   out.encryptedAndSimulated = out.createStatuses.some((s) => /Confirm the transaction in your wallet/.test(s));
 } finally {
