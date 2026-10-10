@@ -15,3 +15,4 @@ docs/book/
 
 # Misc
 .DS_Store
+out-host/

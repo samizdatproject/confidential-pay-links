@@ -24,7 +24,8 @@ forge build >/dev/null 2>&1
 # forge-fhevm's deploy-local.sh reads artifacts from its own out/; point it at ours (script/LocalFhevmHost.sol makes
 # forge build emit the host contracts, including the CleartextFHEVMExecutor).
 FF="$(ls -d dependencies/forge-fhevm-* | head -1)"
-ln -sfn "$ROOT/contracts/out" "$FF/out"
+FOUNDRY_PROFILE=host forge build script/LocalFhevmHost.sol >/dev/null
+ln -sfn "$ROOT/contracts/out-host" "$FF/out"
 if [ "$(cast code 0x50157CFfD6bBFA2DECe204a89ec419c23ef5755D --rpc-url "$RPC")" = "0x" ]; then
   (cd "$FF" && RPC_URL="$RPC" ./deploy-local.sh --skip-build)
 fi

@@ -39,3 +39,18 @@ recursive_deps = false
 # `calls-loop` / `require-revert-in-loop`: PayLinksReader is a view-only pager over a bounded page, and the
 # constructor validates its token list in a loop.
 exclude_lints = ["reentrancy-events", "block-timestamp", "calls-loop", "require-revert-in-loop"]
+
+# The cleartext FHEVM host stack for local demos (scripts/local-chain.sh) is built with forge-fhevm's own settings:
+# the size-optimised via_ir build of the default profile does not deploy correctly on anvil.
+[profile.host]
+src = "src"
+out = "out-host"
+libs = ["dependencies"]
+script = "script"
+solc = "0.8.27"
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 100
+via_ir = false
+cbor_metadata = false
+bytecode_hash = "none"
