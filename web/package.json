@@ -1,0 +1,25 @@
+{
+  "name": "confidential-pay-links",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "e2e": "vitest run --config e2e/vitest.config.ts",
+    "sync-contract": "node scripts/sync-contract.mjs"
+  },
+  "dependencies": {
+    "@zama-fhe/sdk": "3.6.0",
+    "viem": "2.57.4"
+  },
+  "devDependencies": {
+    "@types/node": "22.18.12",
+    "puppeteer-core": "25.13.0",
+    "typescript": "5.9.3",
+    "vite": "8.3.4",
+    "vitest": "5.0.3"
+  }
+}
