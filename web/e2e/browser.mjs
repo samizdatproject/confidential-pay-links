@@ -88,8 +88,8 @@ try {
   const p = await open('payer', link.slice(link.indexOf('#')));
   await waitText(p, /Payment request/);
   results.payPageShowsAmount = /25 cmUSD/.test(await text(p));
-  await clickText(p, 'Get 100 test');
-  await waitText(p, /Minted and shielded/);
+  await clickText(p, 'Mint & wrap');
+  await waitText(p, /Minted and wrapped/);
   await clickText(p, 'Show my balance');
   await waitText(p, /Your balance\s+[1-9][0-9,.]* cmUSD/);
   await p.screenshot({ path: `${shots}2-pay.png`, fullPage: true });

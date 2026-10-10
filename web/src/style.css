@@ -71,3 +71,7 @@ ul { padding-left: 20px; }
 .wallet-option { display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 8px; color: var(--text); }
 .wallet-option img, #wallet-status img { border-radius: 4px; vertical-align: -3px; margin-right: 4px; }
 #wallet-status { width: 100%; text-align: right; }
+.small-input { width: 10em; }
+.test-box { margin: 12px 0; padding: 8px 12px; border: 1px dashed var(--border); border-radius: 8px; }
+.test-box summary { cursor: pointer; font-weight: 600; }
+.active-account { font-weight: 700; color: var(--text); }

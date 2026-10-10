@@ -31,7 +31,7 @@ import {
 } from './link';
 import { savedLinkFor, saveLinkQuery } from './store';
 import { badge, card, copy, errText, extLink, fmtTime, h, render, row, short, statusLine, testBanner, type Child } from './ui';
-import { connectWallet, publicClientFor } from './wallet';
+import { connectWallet, currentAccount, publicClientFor } from './wallet';
 
 const ZERO_ADDR = '0x0000000000000000000000000000000000000000';
 const now = () => Math.floor(Date.now() / 1000);
@@ -66,6 +66,10 @@ async function sendTx(
   } catch {
     estimate = undefined; // the floor still applies
   }
+  // The wallet may have switched account since this action started; never send as someone else.
+  const now = await currentAccount().catch(() => undefined);
+  if (now && now.toLowerCase() !== s.account.toLowerCase())
+    throw new Error(`Your wallet switched to ${short(now)} after this action started as ${short(s.account)}. Start again.`);
   const gas = gasLimitFor(req.functionName, estimate);
   // MetaMask can replace a dapp's gas limit with its own zero-margin estimate (MetaMask/metamask-extension#46334),
   // which FHE transactions can outgrow. Tell the user what to look for.
@@ -251,11 +255,19 @@ export async function viewPay(query: string) {
   const payBtn = h('button', { type: 'button' }, 'Pay');
   const balanceSlot = h('span', { class: 'muted' }, '');
   let session: Session | undefined;
+  const accountNote = h('div', {});
 
+  /** Re-reads the wallet's current account on every action (it can change at any time) and re-validates it. */
   const ensureSession = async () => {
-    session ??= await connect(link.chainId);
-    if (!isOpenPayer(invoice.payer) && session.account.toLowerCase() !== invoice.payer.toLowerCase())
-      throw new Error(`Only ${invoice.payer} can pay this invoice. Switch account in your wallet.`);
+    session = await connect(link.chainId);
+    const me = session.account.toLowerCase();
+    accountNote.replaceChildren(
+      me === invoice.merchant.toLowerCase()
+        ? h('div', { class: 'alert' }, `You are connected as the merchant (${short(session.account)}). Paying your own invoice works but proves nothing; switch account in the header to pay as someone else.`)
+        : '',
+    );
+    if (!isOpenPayer(invoice.payer) && me !== invoice.payer.toLowerCase())
+      throw new Error(`Only ${invoice.payer} can pay this invoice. You are connected as ${session.account}; use "switch account" in the header.`);
     return session;
   };
 
@@ -293,27 +305,40 @@ export async function viewPay(query: string) {
   } }, 'Show my balance');
 
   const net = networkOf(link.chainId);
-  const faucet = tok.mintableUnderlying
-    ? h('button', { type: 'button', class: 'ghost small', onclick: async () => {
-      try {
-        const s = await ensureSession();
-        const amt = 100n * 10n ** BigInt(tok.decimals);
-        await sendTx(s, { address: tok.mintableUnderlying!, abi: mintableErc20Abi, functionName: 'mint', args: [s.account, amt] }, status.pending);
-        await sendTx(s, { address: tok.mintableUnderlying!, abi: mintableErc20Abi, functionName: 'approve', args: [tok.address, amt] }, status.pending);
-        await sendTx(s, { address: tok.address, abi: erc7984Abi, functionName: 'wrap', args: [s.account, amt] }, status.pending);
-        status.ok(`Minted and shielded 100 test ${tok.symbol}.`);
-      } catch (e) {
-        status.error(e);
-      }
-    } }, `Get 100 test ${tok.symbol}`)
+  const faucet = net.chain.testnet && tok.mintableUnderlying ? faucetCard(link.chainId, tok) : null;
+
+  // Testnet-only demo control: pay a different amount on purpose to see the homomorphic refund.
+  const testWrong = h('input', { type: 'checkbox', id: 'test-wrong' });
+  const testAmount = h('input', { id: 'test-amount', inputmode: 'decimal', placeholder: 'e.g. 1.00', class: 'small-input' });
+  const testBox = net.chain.testnet
+    ? h('details', { class: 'test-box' },
+      h('summary', {}, 'Test (testnet only): pay a different amount to see a refund'),
+      h('label', { class: 'check' }, testWrong, ' Pay this amount instead of the invoice amount:'),
+      testAmount,
+      h('p', { class: 'hint' }, 'The contract compares the amounts on ciphertexts and, because they differ, the token refunds you in the same transaction. Your receipt will decrypt as "refunded".'))
     : null;
+  const payAmount = (): bigint | undefined => {
+    if (testWrong.checked) {
+      try {
+        return parseAmount(testAmount.value, tok.decimals);
+      } catch {
+        return undefined;
+      }
+    }
+    return knownAmount;
+  };
+  testWrong.addEventListener('change', () => updatePay());
+  testAmount.addEventListener('input', () => updatePay());
 
   const ack = h('input', { type: 'checkbox' });
   ack.addEventListener('change', () => updatePay());
   const updatePay = () => {
-    const can = state === 'open' && details === 'verified' && knownAmount !== undefined && (tok.listed || ack.checked);
+    const amt = payAmount();
+    const can = state === 'open' && details === 'verified' && (knownAmount !== undefined || testWrong.checked) && amt !== undefined && (tok.listed || ack.checked);
     payBtn.toggleAttribute('disabled', !can);
-    payBtn.textContent = knownAmount !== undefined ? `Pay ${formatAmount(knownAmount, tok.decimals)} ${tok.symbol}` : 'Pay';
+    payBtn.textContent = amt !== undefined
+      ? `Pay ${formatAmount(amt, tok.decimals)} ${tok.symbol}${testWrong.checked ? ' (test: different amount)' : ''}`
+      : 'Pay';
   };
   updatePay();
 
@@ -321,7 +346,8 @@ export async function viewPay(query: string) {
     payBtn.setAttribute('disabled', '');
     try {
       const s = await ensureSession();
-      const amt = knownAmount!;
+      const amt = payAmount();
+      if (amt === undefined) throw new Error('Enter an amount');
       const enc = await withRetry(() => encryptU64(sdkOf(s), amt, invoice.token, s.account), {
         label: 'Encrypting your payment', onProgress: (p) => status.pending(p.message),
       });
@@ -359,18 +385,85 @@ export async function viewPay(query: string) {
       !isOpenPayer(invoice.payer) ? row('Payer', invoice.payer) : null,
       invoice.expiresAt ? row('Expires', fmtTime(invoice.expiresAt)) : null,
       row('Network', net.chain.name),
-      row('Your balance', h('span', {}, balanceSlot, ' ', balanceBtn, ' ', faucet ?? '')),
+      row('Your balance', h('span', {}, balanceSlot, ' ', balanceBtn)),
+      accountNote,
+      testBox,
       h('div', { class: 'actions' }, knownAmount === undefined && details === 'verified' ? revealBtn : null, payBtn),
       status.el,
       h('p', { class: 'hint' }, `Gas: an encrypted payment needs about 4.5–4.8M gas on Sepolia. The app suggests ${gasLimitFor('confidentialTransferAndCall', undefined).toLocaleString('en-US')}; some wallets (MetaMask) replace it with a tight estimate of their own. If a payment fails out of gas, set the gas limit to at least that under Edit network fee → Advanced.`),
       h('p', { class: 'hint' }, 'Your payment is encrypted in your browser and sent with one confidentialTransferAndCall. If the amount does not match exactly, or the invoice was already paid, the token refunds you in the same transaction. Nobody watching the chain can tell which happened. You pay network gas in ETH.'),
       h('p', { class: 'hint' }, 'Already paid? ', h('a', { href: `#/check?c=${link.chainId}&id=${link.invoiceId}` }, 'Public paid check'), ' · ', h('a', { href: '#/receipts' }, 'My payments')),
     ),
+    faucet,
   );
 }
 
 function retryButton() {
   return h('button', { type: 'button', class: 'ghost', onclick: () => window.dispatchEvent(new HashChangeEvent('hashchange')) }, 'Retry');
+}
+
+// ================================================================== test-token faucet (testnets only)
+
+/** Mint the public mock ERC-20, approve, wrap into its ERC-7984 token, and decrypt the confidential balance. */
+export function faucetCard(chainId: number, tok: TokenInfo) {
+  const status = statusLine();
+  const bal = h('strong', {}, lockedValue());
+  const amountIn = h('input', { value: '100', inputmode: 'decimal', class: 'small-input', 'aria-label': 'Amount to mint' });
+  const decryptBalance = async () => {
+    const s = await connect(chainId);
+    const handle = await s.client.readContract({ address: tok.address, abi: erc7984Abi, functionName: 'confidentialBalanceOf', args: [s.account] });
+    const v = await withRetry(() => sdkOf(s).decryption.decryptValues([{ encryptedValue: handle, contractAddress: tok.address }]), {
+      label: 'Decrypting your balance', onProgress: (p) => status.pending(p.message),
+    });
+    bal.textContent = `${formatAmount((v[handle] as bigint) ?? 0n, tok.decimals)} ${tok.symbol} (${short(s.account)})`;
+  };
+  const mintBtn = h('button', { type: 'button', onclick: async () => {
+    mintBtn.setAttribute('disabled', '');
+    try {
+      const amt = parseAmount(amountIn.value, tok.decimals);
+      const s = await connect(chainId);
+      status.pending('1/3 Minting test USDC…');
+      await sendTx(s, { address: tok.mintableUnderlying!, abi: mintableErc20Abi, functionName: 'mint', args: [s.account, amt] }, (m) => status.pending(`1/3 Mint: ${m}`));
+      await sendTx(s, { address: tok.mintableUnderlying!, abi: mintableErc20Abi, functionName: 'approve', args: [tok.address, amt] }, (m) => status.pending(`2/3 Approve: ${m}`));
+      await sendTx(s, { address: tok.address, abi: erc7984Abi, functionName: 'wrap', args: [s.account, amt] }, (m) => status.pending(`3/3 Wrap: ${m}`));
+      const done = `Minted and wrapped ${formatAmount(amt, tok.decimals)} ${tok.symbol} for ${short(s.account)}.`;
+      status.ok(done);
+      await decryptBalance().catch(() => undefined);
+      status.ok(done);
+    } catch (e) {
+      status.error(e);
+    } finally {
+      mintBtn.removeAttribute('disabled');
+    }
+  } }, `Mint & wrap test ${tok.symbol}`);
+  const decBtn = h('button', { type: 'button', class: 'ghost', onclick: async () => {
+    try {
+      await decryptBalance();
+      status.clear();
+    } catch (e) {
+      status.error(e, () => decBtn.click());
+    }
+  } }, 'Decrypt balance');
+  return card(
+    h('h3', {}, `Test tokens (${networkOf(chainId).chain.name} only)`),
+    h('p', { class: 'hint' }, `Mints the public mock USDC, approves it and wraps it into ${tok.symbol}, the ERC-7984 token this invoice uses. Three transactions; testnet gas only. Wrapping is public (an ERC-20 transfer); payments afterwards are confidential.`),
+    h('div', { class: 'inline' }, amountIn, mintBtn),
+    row('Confidential balance', h('span', {}, bal, ' ', decBtn)),
+    status.el,
+  );
+}
+
+export function viewFaucet() {
+  const testnets = Object.values(networks).filter((n) => n.chain.testnet && n.tokens.some((t) => t.mintableUnderlying));
+  if (!testnets.length) return render(card(h('h2', {}, 'Test tokens'), h('p', {}, 'No test network in this build.')));
+  const net = testnets.find((n) => n.chain.id === defaultChainId()) ?? testnets[0]!;
+  const slot = h('div', {});
+  const pick = h('select', { 'aria-label': 'Token' });
+  for (const t of net.tokens.filter((x) => x.mintableUnderlying)) pick.append(h('option', { value: t.address }, t.symbol));
+  const show = () => slot.replaceChildren(faucetCard(net.chain.id, net.tokens.find((t) => t.address === pick.value)!));
+  pick.addEventListener('change', show);
+  render(card(h('h2', {}, 'Get test tokens'), networkBanner(net.chain.id), h('label', {}, 'Token'), pick), slot);
+  show();
 }
 
 // ================================================================== payer receipt

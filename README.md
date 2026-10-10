@@ -68,6 +68,16 @@ link: #/pay?c=<chain>&id=<invoiceId>&s=<salt>&m=<memo>[&a=<amount>]
 
 **Wallets.** Wallets are discovered with EIP-6963. When several are installed (for example Phantom and MetaMask, which both claim `window.ethereum`), a picker shows each wallet's announced name and icon. The choice is remembered in localStorage, and a "switch wallet" link in the header forgets it. `window.ethereum` is used only when no wallet announces itself.
 
+**Accounts.** The app follows the wallet's `accountsChanged` and `chainChanged` events. On any change it re-renders, which drops stale sessions and decrypted values.
+- It re-reads the active account before every action.
+- It refuses to send a transaction if the account changed after the action started.
+- The header shows the active address with **switch account** (`wallet_requestPermissions`, which opens MetaMask's account chooser) and **switch wallet**.
+- Decryption permits and transport keys belong to one account: the app keeps one SDK instance per (chain, account).
+
+**Testnet helpers** (only on test networks):
+- A **Test tokens** card on the pay page, and a `#/faucet` page in the header: mint the public mock USDC, approve, wrap into the invoice's cUSDCMock or cUSDTMock, and decrypt the confidential balance.
+- A clearly labelled control, "Test: pay a different amount to see a refund", for demoing the homomorphic refund. Exact payment stays the default.
+
 **Gas.** Every write sends an explicit gas limit: max(the connected account's `eth_estimateGas` × 1.5, a per-function floor), capped below 16,777,216 (`web/src/gas.ts`). The floors are Sepolia measurements × about 1.25 plus about 300k for smart-account wrappers. Examples: createInvoice 2.8M, pay 6.5M, wrap 1.5M. This was added after a real createInvoice from an EIP-7702 MetaMask account ran out of gas at a wallet-chosen limit of 1.83M. A reverted transaction shows an explorer link and says when it most likely ran out of gas.
 
 **MetaMask can override the gas limit.** MetaMask may replace a dapp's gas limit with its own estimate, which has no margin. It does this for contracts that its address scan does not rate "Trusted", even when "Added protection" is off ([MetaMask/metamask-extension#46334](https://github.com/MetaMask/metamask-extension/issues/46334)).

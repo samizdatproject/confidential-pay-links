@@ -10,6 +10,7 @@ import {
   type WalletClient,
 } from 'viem';
 import { networkOf } from './chains';
+import { chainIdFrom, firstAccount, sameAccount } from './account';
 import { choose, discoverProviders, safeIcon, saveRdns, savedRdns, type Announced } from './discovery';
 
 declare global {
@@ -101,11 +102,80 @@ async function resolveProvider(): Promise<Selected> {
   return selected;
 }
 
+// ---------------------------------------------------------------- account state
+
+/** Fired on window whenever the wallet's account or chain changes, or the user switches wallet/account. */
+export const WALLET_CHANGED = 'cpl:wallet-changed';
+
+type Listener = (...args: unknown[]) => void;
+type Evented = EIP1193Provider & { on?: (e: string, l: Listener) => void; removeListener?: (e: string, l: Listener) => void };
+
+let current: { account?: Address; chainId?: number } = {};
+let unsubscribe: (() => void) | undefined;
+
+function changed() {
+  window.dispatchEvent(new Event(WALLET_CHANGED));
+}
+
+/** Follow the wallet's account and chain, so a switch in MetaMask never leaves the app signing as the old account. */
+function follow(sel: Selected) {
+  unsubscribe?.();
+  const p = sel.provider as Evented;
+  const onAccounts: Listener = (accs) => {
+    const a = firstAccount(accs);
+    if (a ? sameAccount(a, current.account) : !current.account) return;
+    current = { ...current, account: a };
+    showConnected(a ? { name: sel.name, icon: sel.icon, account: a } : undefined);
+    changed();
+  };
+  const onChain: Listener = (id) => {
+    current = { ...current, chainId: chainIdFrom(id) };
+    changed();
+  };
+  p.on?.('accountsChanged', onAccounts);
+  p.on?.('chainChanged', onChain);
+  unsubscribe = () => {
+    p.removeListener?.('accountsChanged', onAccounts);
+    p.removeListener?.('chainChanged', onChain);
+  };
+}
+
+/** The account the selected wallet exposes right now (no prompt), or undefined. */
+export async function currentAccount(): Promise<Address | undefined> {
+  if (!selected) return undefined;
+  return firstAccount(await selected.provider.request({ method: 'eth_accounts' }));
+}
+
 /** Forget the chosen wallet; the next connection asks again. */
 export function switchWallet() {
+  unsubscribe?.();
+  unsubscribe = undefined;
   selected = undefined;
+  current = {};
   saveRdns(null);
   showConnected(undefined);
+  changed();
+}
+
+/** Ask the wallet to choose (or connect) another account: MetaMask shows its account chooser. */
+export async function switchAccount() {
+  const sel = await selectProvider();
+  await sel.provider.request({ method: 'wallet_requestPermissions', params: [{ eth_accounts: {} }] } as never);
+  const a = firstAccount(await sel.provider.request({ method: 'eth_requestAccounts' }));
+  current = { ...current, account: a };
+  showConnected(a ? { name: sel.name, icon: sel.icon, account: a } : undefined);
+  changed();
+}
+
+function link(text: string, onClick: () => void) {
+  const a = document.createElement('a');
+  a.href = '#';
+  a.textContent = text;
+  a.addEventListener('click', (e) => {
+    e.preventDefault();
+    onClick();
+  });
+  return a;
 }
 
 function showConnected(info: { name: string; icon?: string; account: Address } | undefined) {
@@ -121,22 +191,38 @@ function showConnected(info: { name: string; icon?: string; account: Address } |
     img.height = 16;
     el.append(img);
   }
-  el.append(document.createTextNode(`${info.name} · ${info.account.slice(0, 6)}…${info.account.slice(-4)} · `));
-  const a = document.createElement('a');
-  a.href = '#';
-  a.textContent = 'switch wallet';
-  a.addEventListener('click', (e) => {
-    e.preventDefault();
-    switchWallet();
-  });
-  el.append(a);
+  el.append(document.createTextNode(`${info.name} · `));
+  const addr = document.createElement('code');
+  addr.className = 'active-account';
+  addr.title = info.account;
+  addr.textContent = `${info.account.slice(0, 6)}…${info.account.slice(-4)}`;
+  el.append(addr, ' · ', link('switch account', () => void switchAccount().catch(() => undefined)), ' · ', link('switch wallet', switchWallet));
+}
+
+/** On page load: if the remembered (or only) wallet is already connected to this site, follow it and show the
+ *  account, without any prompt. */
+export async function restoreWallet() {
+  if (selected) return;
+  const c = choose(await discoverProviders(), savedRdns());
+  let sel: Selected | undefined;
+  if (c.kind === 'use') sel = { name: c.provider.info.name, icon: safeIcon(c.provider.info.icon), rdns: c.provider.info.rdns, provider: c.provider.provider };
+  else if (c.kind === 'fallback' && window.ethereum) sel = { name: 'Browser wallet', provider: window.ethereum };
+  if (!sel) return;
+  const a = firstAccount(await sel.provider.request({ method: 'eth_accounts' }).catch(() => []));
+  if (!a || selected) return;
+  selected = sel;
+  current = { account: a };
+  follow(sel);
+  showConnected({ name: sel.name, icon: sel.icon, account: a });
 }
 
 /** Connects the chosen injected wallet (EIP-6963, else window.ethereum) and makes sure it is on `chain`. */
 export async function connectWallet(chain: Chain): Promise<{ wallet: WalletClient; account: Address }> {
   const sel = await selectProvider();
+  if (!unsubscribe) follow(sel);
   const provider = sel.provider;
   const probe = createWalletClient({ chain, transport: custom(provider) });
+  // Always ask the wallet: the active account may have changed since the last action.
   const [account] = await probe.requestAddresses();
   if (!account) throw new Error('The wallet did not share an account');
   if ((await probe.getChainId()) !== chain.id) {
@@ -151,8 +237,9 @@ export async function connectWallet(chain: Chain): Promise<{ wallet: WalletClien
       }
     }
   }
-  // The Zama SDK signs decryption permits with the wallet client's account, so bind it.
+  // A fresh client bound to this account each time; the Zama SDK signs decryption permits with it.
   const wallet = createWalletClient({ account, chain, transport: custom(provider) });
+  current = { account, chainId: chain.id };
   showConnected({ name: sel.name, icon: sel.icon, account });
   return { wallet, account };
 }
