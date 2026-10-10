@@ -172,6 +172,12 @@ In the browser, add the local chain to MetaMask (RPC `http://127.0.0.1:8545`, ch
 - **Built and tested locally.** Everything in [Tests](#tests) passes.
 - **Not deployed to Sepolia yet.** Deployment needs a little Sepolia ETH, about 2.3M gas, which is under 0.001 ETH at current prices. No faucet that works without an account or a captcha was available, so nothing was deployed. Then run `scripts/deploy-sepolia.sh` (see [docs/DEPLOY.md](docs/DEPLOY.md)).
 - **Not audited.** Use it on testnets.
+- **Pre-submission checklist.** On Sepolia, make one exact payment (it should be accepted and forwarded) and one wrong-amount payment (it should be refunded), with the deployed contract and cUSDCMock. Keep both tx hashes.
+
+## Trust assumptions
+
+- **Zama's token wrappers.** Payments depend on the accepted tokens behaving like OpenZeppelin ERC-7984: they must grant the transferred handle to themselves (`allowThis` in `_update`), or the callback rejects the payment, and they must refund the payer when the callback returns false. On Sepolia these are Zama's `cUSDCMock` and `cUSDTMock` wrappers. Zama operates them, and they may be upgradeable, so this contract trusts Zama to keep that behaviour.
+- **The Zama Protocol.** Decryption and the KMS signatures behind public proofs come from Zama's relayer, gateway and KMS.
 
 ## Security review
 

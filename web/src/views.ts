@@ -531,14 +531,16 @@ export function viewDashboard() {
   const exportCsv = () => {
     // Quote every cell and defuse spreadsheet formulas (a memo like "=HYPERLINK(...)" would otherwise run).
     const esc = (v: string) => `"${(/^[=+\-@\t\r]/.test(v) ? `'${v}` : v).replace(/"/g, '""')}"`;
-    const lines = [['invoice_id', 'created_utc', 'token', 'memo', 'state', 'amount', 'paid', 'payments', 'accepted_payer'].join(',')];
+    const lines = [['invoice_id', 'created_utc', 'token', 'memo', 'state', 'amount', 'paid', 'payments', `accepted_payer_in_latest_${RECENT_PAYMENTS}`].join(',')];
     for (const r of rows) {
       const a = val(r.inv.amount);
       const accepted = r.payments.find((p) => val(p.accepted) === true);
       lines.push([
         r.id, fmtTime(r.inv.createdAt), r.tok.symbol, r.link?.memo ?? '', openState(r.inv, now()),
         typeof a === 'bigint' ? formatAmount(a, r.tok.decimals) : 'encrypted',
-        String(val(r.inv.paid) ?? 'encrypted'), String(r.paymentTotal), accepted?.payer ?? '',
+        String(val(r.inv.paid) ?? 'encrypted'), String(r.paymentTotal),
+        // Only the latest attempts are loaded and decrypted (attempts can be spammed); say so instead of guessing.
+        accepted?.payer ?? (r.paymentTotal > r.payments.length ? `not among latest ${RECENT_PAYMENTS} attempts` : ''),
       ].map(esc).join(','));
     }
     const blob = new Blob([lines.join('\n') + '\n'], { type: 'text/csv' });
