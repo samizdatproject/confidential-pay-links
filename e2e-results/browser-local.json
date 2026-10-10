@@ -1,7 +1,7 @@
 {
   "crossOriginIsolated": true,
   "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://ethereum-sepolia-rpc.publicnode.com https://relayer.testnet.zama.org https://zama-mpc-testnet-public-efd88e2b.s3.eu-west-1.amazonaws.com http://127.0.0.1:8545; img-src 'self' data:; style-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'",
-  "link": "http://127.0.0.1:4173/#/pay?c=31337&id=0x54794c85a74b552edbe2e42601761a0fc25651c367e2b3cf51ac2d671c6c5f34&s=0xd69feb264a6d55b72aae650c2a75360c3037fbd2857238be375e1d212ee28fb0&m=Invoice+%2342+%E2%80%94+logo+design&a=25000000",
+  "link": "http://127.0.0.1:4173/#/pay?c=31337&id=0xb6ad4aa74c97c3f84e62a33ff02cf31dc9e85e46fc861295a3e302fc7e446b02&s=0xe6dacdf7f9ddec9d36efecfcee3bf3145fbf0e4aac2eda7f2377f719fc351918&m=Invoice+%2342+%E2%80%94+logo+design&a=25000000",
   "payPageShowsAmount": true,
   "payerReceipt": "accepted",
   "tamperedLinkBlocked": true,

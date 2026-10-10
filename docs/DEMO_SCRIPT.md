@@ -25,7 +25,7 @@
 | 1:55–2:05 | Optional: edit `a=` in the URL and reload. Red "This link was modified", and Pay is disabled. | "If someone edits the amount in a link, the page catches it." |
 | 2:05–2:30 | Profile A, `#/dashboard`: click **Decrypt all** and show the amount, "paid" and the payment row. Click **Add viewer** and paste the auditor address. | "The merchant decrypts all their invoices with one signature, and can export CSV for accounting. Here I give my accountant access to this one invoice. They can decrypt its amount and status, and nothing else." |
 | 2:30–2:50 | Click **Publish paid status**, then open `#/check?…` in a private window with no wallet. Show "PAID", then click **Record this proof on chain** (from a profile). | "For a shop or a counterparty, I can publish just the paid flag. Anyone can check 'paid: yes', verified by Zama's KMS signatures, and record it on chain, without ever seeing the amount." |
-| 2:50–3:00 | README or the repo | "No backend, no admin keys. The contract never holds funds. It's open source, built with Foundry and forge-fhevm, and tested with 38 contract tests plus end-to-end runs. Thanks!" |
+| 2:50–3:00 | README or the repo | "No backend, no admin keys. The contract never holds funds. It's open source, built with Foundry and forge-fhevm, and tested with 49 contract tests plus end-to-end runs. Thanks!" |
 
 ## Tips
 

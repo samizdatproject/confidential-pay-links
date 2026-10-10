@@ -13,7 +13,7 @@ import { createPublicClient, createWalletClient, encodeAbiParameters, http, type
 import { privateKeyToAccount } from 'viem/accounts';
 import { foundry } from 'viem/chains';
 import { describe, expect, it } from 'vitest';
-import { erc7984Abi, mintableErc20Abi, payLinksAbi, paymentFromReceipt, readInvoice, readPayments } from '../src/contract';
+import { erc7984Abi, mintableErc20Abi, payLinksAbi, paymentFromReceipt, readInvoice, readPayment } from '../src/contract';
 import { checkDetails, decodeLink, detailsHashOf, encodeLink, invoiceIdOf, randomBytes32 } from '../src/link';
 
 const envFile = fileURLToPath(new URL('../.env.development.local', import.meta.url));
@@ -115,15 +115,13 @@ describe('Confidential Pay Links end to end (local cleartext FHEVM)', () => {
 
     // 2. A wrong amount is refunded, and the payer can see that.
     const wrong = await pay(p, price - 1n);
-    const payments1 = await readPayments(pub, payLinks, invoiceId);
-    const acc0 = payments1[wrong.index]!.accepted;
+    const acc0 = (await readPayment(pub, payLinks, invoiceId, wrong.index)).accepted;
     expect((await p.sdk.decryption.decryptValues([{ encryptedValue: acc0, contractAddress: payLinks }]))[acc0]).toBe(false);
     expect(await balanceOf(p)).toBe(payerStart);
 
     // 3. The exact amount is forwarded to the merchant.
     const right = await pay(p, price);
-    const payments2 = await readPayments(pub, payLinks, invoiceId);
-    const acc1 = payments2[right.index]!.accepted;
+    const acc1 = (await readPayment(pub, payLinks, invoiceId, right.index)).accepted;
     expect((await p.sdk.decryption.decryptValues([{ encryptedValue: acc1, contractAddress: payLinks }]))[acc1]).toBe(true);
     expect(await balanceOf(p)).toBe(payerStart - price);
     expect(await balanceOf(m)).toBe(merchantStart + price);

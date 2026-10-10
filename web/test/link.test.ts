@@ -91,9 +91,16 @@ describe('encode / decode', () => {
   });
 
   it('rejects hidden and direction-changing characters in the memo', () => {
-    for (const ch of ['‮', '​', '⁦', '﻿', '­', '\u{E0041}']) {
+    for (const ch of [
+      '\u202E', '\u200B', '\u2066', '\uFEFF', '\u00AD', '\u{E0041}', '\uFE0F', '\u{E0100}', '\u2028', '\u2029',
+      '\u206A', '\u180B', '\u17B4', '\uFFF9', '\u2800', '\u{1D173}', '\u0085', '\u0007', '\n', '\u009B',
+    ]) {
       expect(() => encodeLink({ ...link, memo: `pay${ch}me` })).toThrow(/invisible/);
     }
+  });
+
+  it('still allows ordinary text, accents and simple emoji', () => {
+    expect(() => encodeLink({ ...link, memo: 'Facture n°42 — café 🍰 日本' })).not.toThrow();
   });
 
   it('limits memo length in bytes', () => {

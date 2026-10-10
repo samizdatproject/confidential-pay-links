@@ -46,8 +46,11 @@ link: #/pay?c=<chain>&id=<invoiceId>&s=<salt>&m=<memo>[&a=<amount>]
   - Paid flag: the merchant and viewers. Viewers are re-granted on every update, because each update creates a new handle.
   - Each payment attempt (amount sent, accepted or not): the merchant and that payer.
   - Auditors get the invoice-level amount and paid flag, not the individual attempts.
-- **Public proof.** `publishPaidStatus` (merchant, fixed payer or viewer) makes only the paid `ebool` publicly decryptable. Anyone can decrypt it through the relayer. `confirmPaidStatus` verifies the KMS signatures on chain and sets `paidConfirmed[id] = true`, so other contracts can read a cleartext "paid" bit.
-- **No owner, no admin, no upgrade.** The contract never keeps payments. The hook is `nonReentrant`, and state and events are written before the one external call to the token.
+- **Public proof.** `publishPaidStatus` (merchant only, authorised by role rather than by ACL) makes only the paid `ebool` publicly decryptable. Anyone can decrypt it through the relayer. The public check page then verifies the KMS signatures by simulating `confirmPaidStatus` before it shows a result. `confirmPaidStatus` verifies the KMS signatures on chain and sets `paidConfirmed[id] = true`, so other contracts can read a cleartext "paid" bit.
+- **Token allowlist, fixed at deployment.** The constructor takes the accepted ERC-7984 tokens (on Sepolia: cUSDCMock and cUSDTMock). There is no admin to change it. The callback also requires the token to hold the handle it passes (`FHE.isAllowed(amount, msg.sender)`). Without both checks, a fake "token" could hand the contract someone else's encrypted handle and get it re-granted (fixed after review; see [Security review](#security-review)).
+- **Paid means delivered.** A payment only counts if the token's return value shows the merchant received the whole amount.
+- **"Paid" does not say who paid.** It means some address sent exactly the invoiced amount of the invoice's token. A merchant can pay their own invoice. Anyone relying on "paid" for something that matters should check the payer address on the payment.
+- **No owner, no admin, no upgrade.** The contract never keeps payments. The hook is `nonReentrant`.
 
 ## Pages
 
@@ -130,16 +133,23 @@ In the browser, add the local chain to MetaMask (RPC `http://127.0.0.1:8545`, ch
 
 ## Tests
 
-- **Contract: 38 Foundry tests, including a 256-run fuzz test,** on forge-fhevm. They run the real ACL, executor and input-verifier contracts, with plaintext tracking.
+- **Contract: 49 Foundry tests, including a 256-run fuzz test,** on forge-fhevm. They run the real ACL, executor and input-verifier contracts, with plaintext tracking.
   - Payment outcomes: the happy path; under- and over-payment refunded; insufficient balance; a zero-amount invoice cannot be paid with nothing; retry after an underpayment; a double payment (three payers) refunded; payment through an operator.
   - Public conditions that revert: wrong token, a direct call to the callback, unknown invoice, bad data, cancelled, expired, fixed payer.
   - Invoice id binding: chain, contract, merchant and nonce; a shared Solidity/TypeScript test vector; duplicate nonces; an input proof made for another user is rejected.
   - ACL: the merchant decrypts everything; a payer decrypts only their own attempt; a stranger decrypts nothing; a fixed payer sees the amount before paying; an auditor sees the amount and future paid flags but not the attempts, and only for that invoice; the viewer cap.
   - Public proof: paid; unpaid then paid (a stale proof stays "not paid"); a forged cleartext is rejected; only authorised accounts can publish; the amount is never publicly decryptable.
   - Reentrancy through a malicious token.
+  - Review regressions:
+    - a fake token cannot leak victims' handles (the ported PoC);
+    - an accepted token cannot pass handles it does not hold;
+    - paid flags are not shared across invoices;
+    - the token allowlist;
+    - an undelivered forward is not counted as paid.
+  - Extra cases: a merchant paying their own invoice; a fixed payer paying through an operator; a payment exactly at expiry; cancelling after acceptance; a stale published "false"; 12 spam attempts with paginated views.
   - Accepted and refunded payments emit the same sequence of events, and their gas differs by under 1,000 (measured: 68).
   - Fuzz: accepted if and only if the amounts are exactly equal and non-zero, and balances are conserved.
-- **Web unit tests (18).**
+- **Web unit tests (19).**
   - The invoice id vector shared with Solidity, and binding.
   - The details commitment: edits detected; an absent amount is committed.
   - Link round-trip and malformed links; hidden and bidi characters; memo byte limits.
@@ -163,12 +173,32 @@ In the browser, add the local chain to MetaMask (RPC `http://127.0.0.1:8545`, ch
 - **Not deployed to Sepolia yet.** Deployment needs a little Sepolia ETH, about 2.3M gas, which is under 0.001 ETH at current prices. No faucet that works without an account or a captcha was available, so nothing was deployed. Then run `scripts/deploy-sepolia.sh` (see [docs/DEPLOY.md](docs/DEPLOY.md)).
 - **Not audited.** Use it on testnets.
 
+## Security review
+
+Two independent AI-agent reviews were run on 2026-10-10. They gave the verdict "safe for testnet demo, fix before relying on 'paid'". Everything they found is fixed in the commit after `8dc5a65`:
+
+| ID | Issue | Fix |
+|---|---|---|
+| N-1 (critical) | Confused-deputy ACL leak. A fake token could call the callback with someone else's encrypted handle, and the contract re-granted it to the attacker's invoice merchant. | The callback requires `FHE.isAllowed(amount, msg.sender)`. The constructor sets an immutable token allowlist. The PoC is ported as a regression test. |
+| M-1 | A merchant could forge "PAID" with a fake token. | Token allowlist. The docs and UI state that "paid" does not say who paid. |
+| M-2 | `publishPaidStatus` was authorised by ACL (which includes transient grants), and every unpaid invoice shared the global `asEbool(false)` handle. | Merchant-only role check. The paid flag starts as `FHE.ne(amount, amount)`, which is unique to each invoice. |
+| L-1 | The return value of the forward was ignored. | "Accepted" now also requires `moved == amount`. |
+| L-2 | Payment arrays were unbounded. | Paginated views (`getPayments`, `paymentsBy`); the UI shows the latest 20. |
+| L-3 | The public check trusted the relayer's cleartext. | The UI simulates `confirmPaidStatus` (on-chain KMS signature check) before showing a result. |
+| L-4 | No anti-framing protection. | `frame-ancestors 'none'` and `X-Frame-Options: DENY` in `_headers` and `vercel.json`. |
+| L-5 | Unlisted tokens were shown under their own name. | Shown as "UNLISTED (claims …)", and Pay stays disabled until the payer ticks an explicit acknowledgement. |
+| L-6 | Missing test cases. | Added. |
+| I-1 | Publishing paid status could hint which attempt succeeded. | Documented, warned in the UI, and publishing is merchant-only. |
+| I-5 | Gaps in the hidden-character filter. | Extended: controls, variation selectors, line separators, Braille blank, and more. |
+| I-6 | Receipt `tx` parameter not validated; CSV export could carry spreadsheet formulas. | `tx` is validated; CSV cells are quoted and formula-prefixed cells are neutralised. |
+
 ## Limitations
 
 - **Exact-match payments.** An overpayment is refunded in full, not partially. The payer must know the amount: it comes from the link, from being the fixed payer, or from being added as a viewer.
 - **Links are bearer data.** Whoever has the link reads its memo and amount hint. Leave the amount out of the link and add the payer as a viewer if that matters.
-- **The merchant chooses the token.** The pay page warns when a token is not one the app lists. A malicious token can only affect invoices that name it.
+- **Tokens are fixed at deployment.** Adding cUSDC or cUSDT on mainnet later means a new deployment, because there is no admin. The pay page still flags tokens the app does not list.
 - **ACL grants are permanent.** fhEVM cannot revoke access to a handle. A viewer keeps access to what they were granted, and also receives later paid-flag updates for that invoice.
+- **Variation selectors are rejected in memos,** so emoji that need U+FE0F (for example ❤️) cannot be used. Plain emoji work.
 - **Viewer cap.** At most 8 viewers per invoice, which keeps the gas of each payment bounded.
 - **Tokens sent with a plain `confidentialTransfer`** (without the callback) to the contract cannot be recovered. There is no admin, by design.
 - **Redeploying invalidates outstanding links.** The id includes the contract address.

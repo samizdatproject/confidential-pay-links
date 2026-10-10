@@ -2,6 +2,8 @@
 
 ## 1. Contract on Sepolia
 
+The deploy script fixes the token allowlist to Zama's `cUSDCMock` and `cUSDTMock` (see `contracts/script/Deploy.s.sol`). It cannot be changed later, because there is no admin.
+
 You need a little Sepolia ETH. Deploying costs about 2.3M gas; at the ~0.001 gwei Sepolia gas price seen on 2026-10-10 that is about 0.0000025 ETH, so **0.01 Sepolia ETH covers the deploy and hundreds of demo payments**.
 
 **Option A: the throwaway deployer that was prepared locally.**
@@ -58,7 +60,7 @@ Without them the SDK falls back to one thread. The app still works but is slower
 | GitHub Pages | cannot set headers | works single-threaded only; a `coi-serviceworker` shim could add isolation, but it is not included |
 | `npm run dev` / `npm run preview` | `vite.config.ts` sends both headers | tested: `crossOriginIsolated === true` |
 
-Build: `cd web && npm ci && npm run build`. The output is in `web/dist/` and it is a static site. A production build contains no localhost or anvil network: the local chain only exists in `vite build --mode development` with `web/.env.development.local`.
+Build: `cd web && npm ci && npm run build`. The output is in `web/dist/` and it is a static site. A production build offers no localhost or anvil network: the local chain is only offered by `vite build --mode development` with `web/.env.development.local`. The SDK's own chain presets, which include a hardhat entry, are still bundled but unused.
 
 ## 3. Content-Security-Policy
 

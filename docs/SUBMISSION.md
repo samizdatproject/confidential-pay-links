@@ -38,8 +38,8 @@ A merchant creates an invoice whose amount is encrypted in the browser with the 
 - Video (3 min, own voice): ⟨link⟩
 
 **Tests:**
-- 38 Foundry tests on forge-fhevm (happy path, under- and over-payment, double pay, wrong token, ACL for merchant/payer/auditor/stranger, invoice id binding, reentrancy, public proof, fuzz).
-- 18 web unit tests.
+- 49 Foundry tests on forge-fhevm, including regressions for two independent security reviews, (happy path, under- and over-payment, double pay, wrong token, ACL for merchant/payer/auditor/stranger, invoice id binding, reentrancy, public proof, fuzz).
+- 19 web unit tests.
 - A Node end-to-end run and a headless-browser end-to-end run against a local FHEVM with the real SDK.
 - A read-only check on Sepolia with the live relayer.
 

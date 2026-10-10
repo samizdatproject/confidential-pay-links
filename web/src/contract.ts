@@ -34,7 +34,7 @@ export type Invoice = {
   paid: Hex; // encrypted handle
 };
 
-export type Payment = { payer: Address; paidAt: number; received: Hex; accepted: Hex };
+export type Payment = { index: number; payer: Address; paidAt: number; received: Hex; accepted: Hex };
 
 const ZERO = '0x0000000000000000000000000000000000000000';
 
@@ -56,9 +56,20 @@ export async function readInvoice(client: PublicClient, payLinks: Address, invoi
   };
 }
 
-export async function readPayments(client: PublicClient, payLinks: Address, invoiceId: Hex): Promise<Payment[]> {
-  const ps = await client.readContract({ address: payLinks, abi: payLinksAbi, functionName: 'getPayments', args: [invoiceId] });
-  return ps.map((p) => ({ payer: p.payer, paidAt: Number(p.paidAt), received: p.received, accepted: p.accepted }));
+export async function readPayment(client: PublicClient, payLinks: Address, invoiceId: Hex, index: number): Promise<Payment> {
+  const p = await client.readContract({ address: payLinks, abi: payLinksAbi, functionName: 'getPayment', args: [invoiceId, BigInt(index)] });
+  return { index, payer: p.payer, paidAt: Number(p.paidAt), received: p.received, accepted: p.accepted };
+}
+
+/** The latest `limit` payment attempts of an invoice (attempts are public and can be spammed, so never read all). */
+export async function readRecentPayments(client: PublicClient, payLinks: Address, invoiceId: Hex, limit = 20) {
+  const total = Number(await client.readContract({ address: payLinks, abi: payLinksAbi, functionName: 'paymentCount', args: [invoiceId] }));
+  const offset = Math.max(0, total - limit);
+  const ps = await client.readContract({
+    address: payLinks, abi: payLinksAbi, functionName: 'getPayments', args: [invoiceId, BigInt(offset), BigInt(limit)],
+  });
+  const items: Payment[] = ps.map((p, i) => ({ index: offset + i, payer: p.payer, paidAt: Number(p.paidAt), received: p.received, accepted: p.accepted }));
+  return { total, items };
 }
 
 export async function readMerchantInvoiceIds(client: PublicClient, payLinks: Address, merchant: Address): Promise<Hex[]> {
@@ -72,9 +83,12 @@ export async function readMerchantInvoiceIds(client: PublicClient, payLinks: Add
   return ids;
 }
 
-export async function readPayerPayments(client: PublicClient, payLinks: Address, payer: Address) {
-  const refs = await client.readContract({ address: payLinks, abi: payLinksAbi, functionName: 'paymentsBy', args: [payer] });
-  return refs.map((r) => ({ invoiceId: r.invoiceId, index: Number(r.index) }));
+/** The payer's latest `limit` payments, newest first. */
+export async function readPayerPayments(client: PublicClient, payLinks: Address, payer: Address, limit = 50) {
+  const total = Number(await client.readContract({ address: payLinks, abi: payLinksAbi, functionName: 'paymentCountBy', args: [payer] }));
+  const offset = Math.max(0, total - limit);
+  const refs = await client.readContract({ address: payLinks, abi: payLinksAbi, functionName: 'paymentsBy', args: [payer, BigInt(offset), BigInt(limit)] });
+  return refs.map((r) => ({ invoiceId: r.invoiceId, index: Number(r.index) })).reverse();
 }
 
 /** The PaymentReceived event of `payLinks` in a transaction receipt, if the payment reached it. */

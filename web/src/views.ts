@@ -10,7 +10,9 @@ import {
   readInvoice,
   readMerchantInvoiceIds,
   readPayerPayments,
-  readPayments,
+  readPayment,
+  readRecentPayments,
+  type Payment,
   type Invoice,
 } from './contract';
 import { encryptU64, fheFor, withRetry } from './fhe';
@@ -66,7 +68,8 @@ async function tokenMeta(chainId: number, token: Address): Promise<TokenInfo & {
     c.readContract({ address: token, abi: erc7984Abi, functionName: 'symbol' }).catch(() => '?'),
     c.readContract({ address: token, abi: erc7984Abi, functionName: 'decimals' }).catch(() => 6),
   ]);
-  return { address: token, symbol: String(symbol), decimals: Number(decimals), listed: false };
+  // Never show an unlisted token under its self-declared name alone: anyone can deploy a token called "cUSDC".
+  return { address: token, symbol: `UNLISTED (claims "${String(symbol).slice(0, 20)}")`, decimals: Number(decimals), listed: false };
 }
 
 function stateBadge(inv: Invoice) {
@@ -279,8 +282,10 @@ export async function viewPay(query: string) {
     } }, `Get 100 test ${tok.symbol}`)
     : null;
 
+  const ack = h('input', { type: 'checkbox' });
+  ack.addEventListener('change', () => updatePay());
   const updatePay = () => {
-    const can = state === 'open' && details === 'verified' && knownAmount !== undefined;
+    const can = state === 'open' && details === 'verified' && knownAmount !== undefined && (tok.listed || ack.checked);
     payBtn.toggleAttribute('disabled', !can);
     payBtn.textContent = knownAmount !== undefined ? `Pay ${formatAmount(knownAmount, tok.decimals)} ${tok.symbol}` : 'Pay';
   };
@@ -312,7 +317,8 @@ export async function viewPay(query: string) {
   if (details === 'modified')
     warnings.push(h('div', { class: 'alert' }, 'This link was modified: its memo or amount does not match what the merchant committed to on chain. Do not pay from it; ask the merchant for the original link.'));
   if (!tok.listed)
-    warnings.push(h('div', { class: 'alert' }, `This invoice asks for a token this app does not list (${invoice.token}). Check it is the token you expect.`));
+    warnings.push(h('div', { class: 'alert' }, `This invoice asks for a token this app does not list: ${invoice.token}. Its name proves nothing. Only pay if you have checked this exact address.`,
+      h('label', { class: 'check' }, ack, ' I checked the token address and want to pay in it')));
   if (state !== 'open') warnings.push(h('div', { class: 'alert' }, `This invoice is ${state} and cannot be paid.`));
 
   render(
@@ -347,15 +353,16 @@ export async function viewReceipt(query: string) {
   const chainId = Number(p.get('c'));
   const invoiceId = p.get('id') as Hex;
   const index = Number(p.get('i'));
-  const tx = p.get('tx');
+  const txParam = p.get('tx');
+  const tx = txParam && /^0x[0-9a-fA-F]{64}$/.test(txParam) ? txParam : null;
   const status = statusLine();
   const result = h('div', {});
-  let payment: Awaited<ReturnType<typeof readPayments>>[number] | undefined;
+  let payment: Payment | undefined;
   let contract: Address;
   try {
     contract = payLinksOf(chainId);
-    payment = (await readPayments(publicClientFor(chainId), contract, invoiceId))[index];
-    if (!payment) throw new Error('No such payment');
+    if (!/^0x[0-9a-fA-F]{64}$/.test(invoiceId ?? '') || !Number.isSafeInteger(index) || index < 0) throw new Error('Bad receipt link');
+    payment = await readPayment(publicClientFor(chainId), contract, invoiceId, index);
   } catch (e) {
     return render(card(h('h2', {}, 'Payment not found'), h('p', {}, errText(e)), retryButton()));
   }
@@ -393,6 +400,7 @@ export async function viewReceipt(query: string) {
     row('Invoice', h('code', {}, invoiceId)),
     row('Payer', pay.payer),
     row('Merchant', inv.merchant),
+    row('Token', extLink(explorerAddress(chainId, inv.token), tok.symbol)),
     row('Time', fmtTime(pay.paidAt)),
     tx ? row('Transaction', extLink(explorerTx(chainId, tx), short(tx))) : null,
     row('Outcome', lockedValue('encrypted — only you and the merchant can see it')),
@@ -411,7 +419,7 @@ export async function viewMyPayments() {
       const chainId = defaultChainId();
       const s = await connect(chainId);
       const refs = await readPayerPayments(s.client, payLinksOf(chainId), s.account);
-      list.replaceChildren(...(refs.length ? refs.reverse().map((r) =>
+      list.replaceChildren(...(refs.length ? refs.map((r) =>
         h('div', { class: 'linkrow' }, h('a', { href: `#/receipt?c=${chainId}&id=${r.invoiceId}&i=${r.index}` }, `${short(r.invoiceId)} · payment #${r.index}`))) : [h('p', {}, 'No payments from this address yet.')]));
       status.clear();
     } catch (e) {
@@ -423,7 +431,8 @@ export async function viewMyPayments() {
 
 // ================================================================== merchant dashboard
 
-type Row = { id: Hex; inv: Invoice; tok: TokenInfo; link?: PayLink; payments: Awaited<ReturnType<typeof readPayments>> };
+const RECENT_PAYMENTS = 20;
+type Row = { id: Hex; inv: Invoice; tok: TokenInfo; link?: PayLink; payments: Payment[]; paymentTotal: number };
 
 export function viewDashboard() {
   const status = statusLine();
@@ -449,7 +458,8 @@ export function viewDashboard() {
       const ids = await readMerchantInvoiceIds(session.client, contract, session.account);
       rows = await Promise.all(ids.reverse().map(async (id) => {
         const inv = (await readInvoice(session!.client, contract, id))!;
-        return { id, inv, tok: await tokenMeta(chainId, inv.token), link: savedLinkFor(chainId, id), payments: await readPayments(session!.client, contract, id) };
+        const recent = await readRecentPayments(session!.client, contract, id, RECENT_PAYMENTS);
+        return { id, inv, tok: await tokenMeta(chainId, inv.token), link: savedLinkFor(chainId, id), payments: recent.items, paymentTotal: recent.total };
       }));
       status.clear();
       draw();
@@ -501,7 +511,7 @@ export function viewDashboard() {
     } }, label);
 
   const addViewer = async (r: Row) => {
-    const who = prompt('Address that may decrypt this invoice\'s amount and paid status (an auditor, or the payer):')?.trim();
+    const who = prompt('Address that may decrypt this invoice\'s amount and paid status (an auditor, or the payer).\nThis cannot be revoked: they keep access to these values and to later paid-status updates of this invoice.')?.trim();
     if (!who) return;
     if (!isAddress(who)) throw new Error('Not an address');
     await sendTx(session!, { address: payLinksOf(session!.chainId), abi: payLinksAbi, functionName: 'addViewer', args: [r.id, getAddress(who)] }, status.pending);
@@ -513,22 +523,23 @@ export function viewDashboard() {
     return 'Invoice cancelled.';
   };
   const publish = async (r: Row) => {
-    if (!confirm('Make this invoice\'s paid / not-paid status public? The amount stays private. This cannot be undone for the current status.')) return;
+    if (!confirm('Make this invoice\'s paid / not-paid status public? The amount stays private, but payment attempts are public, so the timing can hint which attempt succeeded. This cannot be undone for the current status.')) return;
     await sendTx(session!, { address: payLinksOf(session!.chainId), abi: payLinksAbi, functionName: 'publishPaidStatus', args: [r.id] }, status.pending);
     return `Published. Public check: ${baseUrl()}#/check?c=${session!.chainId}&id=${r.id}`;
   };
 
   const exportCsv = () => {
-    const esc = (s: string) => `"${s.replace(/"/g, '""')}"`;
+    // Quote every cell and defuse spreadsheet formulas (a memo like "=HYPERLINK(...)" would otherwise run).
+    const esc = (v: string) => `"${(/^[=+\-@\t\r]/.test(v) ? `'${v}` : v).replace(/"/g, '""')}"`;
     const lines = [['invoice_id', 'created_utc', 'token', 'memo', 'state', 'amount', 'paid', 'payments', 'accepted_payer'].join(',')];
     for (const r of rows) {
       const a = val(r.inv.amount);
       const accepted = r.payments.find((p) => val(p.accepted) === true);
       lines.push([
-        r.id, fmtTime(r.inv.createdAt), r.tok.symbol, esc(r.link?.memo ?? ''), openState(r.inv, now()),
+        r.id, fmtTime(r.inv.createdAt), r.tok.symbol, r.link?.memo ?? '', openState(r.inv, now()),
         typeof a === 'bigint' ? formatAmount(a, r.tok.decimals) : 'encrypted',
-        String(val(r.inv.paid) ?? 'encrypted'), String(r.payments.length), accepted?.payer ?? '',
-      ].join(','));
+        String(val(r.inv.paid) ?? 'encrypted'), String(r.paymentTotal), accepted?.payer ?? '',
+      ].map(esc).join(','));
     }
     const blob = new Blob([lines.join('\n') + '\n'], { type: 'text/csv' });
     const a = h('a', { href: URL.createObjectURL(blob), download: 'confidential-invoices.csv' });
@@ -557,8 +568,10 @@ export function viewDashboard() {
         r.inv.expiresAt ? row('Expires', fmtTime(r.inv.expiresAt)) : null,
         !isOpenPayer(r.inv.payer) ? row('Payer', r.inv.payer) : null,
         row('Payments', r.payments.length
-          ? h('div', {}, ...r.payments.map((p, i) => h('div', { class: 'payment' },
-            `#${i} ${short(p.payer)} · ${fmtTime(p.paidAt)} · `, amt(r, p.received), ' ',
+          ? h('div', {},
+            r.paymentTotal > r.payments.length ? h('div', { class: 'muted' }, `latest ${r.payments.length} of ${r.paymentTotal} attempts`) : null,
+            ...r.payments.map((p) => h('div', { class: 'payment' },
+            `#${p.index} ${short(p.payer)} · ${fmtTime(p.paidAt)} · `, amt(r, p.received), ' ',
             val(p.accepted) === undefined ? lockedValue() : val(p.accepted) ? badge('accepted', 'ok') : badge('refunded', 'bad'))))
           : 'none yet'),
         row('Invoice id', h('code', {}, r.id)),
@@ -597,7 +610,7 @@ export async function viewCheck(query: string) {
     location.hash = `#/check?c=${chainId}&id=${idInput.value.trim()}`;
   } }, h('label', {}, 'Invoice id'), idInput, h('button', { type: 'submit' }, 'Check'));
   render(card(networkBanner(chainId), h('h2', {}, 'Is this invoice paid?'),
-    h('p', { class: 'hint' }, 'Public check, no wallet needed. It can only show a result the merchant (or a viewer they chose) has published, and it never reveals an amount.'),
+    h('p', { class: 'hint' }, 'Public check, no wallet needed. It can only show a result the merchant has published, and it never reveals an amount. "Paid" means some address sent exactly the invoiced amount of this token; check the payer yourself if who paid matters.'),
     form, status.el, result));
   if (!/^0x[0-9a-fA-F]{64}$/.test(invoiceId)) return;
 
@@ -612,7 +625,13 @@ export async function viewCheck(query: string) {
         client.readContract({ address: contract, abi: payLinksAbi, functionName: 'paidConfirmed', args: [invoiceId] }),
         client.readContract({ address: contract, abi: payLinksAbi, functionName: 'publishedPaidHandle', args: [invoiceId] }),
       ]);
-      const facts = [row('Merchant', inv.merchant), row('Created', fmtTime(inv.createdAt)), row('State', stateBadge(inv))];
+      const tok = await tokenMeta(chainId, inv.token);
+      const facts = [
+        row('Merchant', inv.merchant),
+        row('Token', extLink(explorerAddress(chainId, inv.token), tok.symbol)),
+        row('Created', fmtTime(inv.createdAt)),
+        row('State', stateBadge(inv)),
+      ];
       if (confirmed) {
         status.clear();
         return result.replaceChildren(h('h3', {}, badge('PAID — proven on chain', 'ok')), ...facts,
@@ -627,7 +646,14 @@ export async function viewCheck(query: string) {
       const r = await withRetry(() => sdk.decryption.decryptPublicValues([handle]), {
         label: 'Asking the Zama network for the published status', attempts: 6, onProgress: (x) => status.pending(x.message),
       });
-      const paid = r.clearValues[handle] === true;
+      // Do not trust the relayer's cleartext: check the KMS signatures against the contract before showing a result.
+      status.pending('Verifying the KMS signatures against the contract…');
+      const { result: verified } = await client.simulateContract({
+        address: contract, abi: payLinksAbi, functionName: 'confirmPaidStatus',
+        args: [invoiceId, r.abiEncodedClearValues as Hex, r.decryptionProof as Hex],
+      });
+      const paid = verified === true;
+      if (paid !== (r.clearValues[handle] === true)) throw new Error('The relayer\'s answer does not match its signed proof.');
       status.clear();
       const record = h('button', { type: 'button', class: 'ghost', onclick: async () => {
         try {
@@ -641,7 +667,7 @@ export async function viewCheck(query: string) {
       } }, 'Record this proof on chain');
       result.replaceChildren(
         h('h3', {}, paid ? badge('PAID', 'ok') : badge('NOT PAID (at the time it was published)', 'open')), ...facts,
-        h('p', { class: 'hint' }, 'Decrypted by the Zama KMS from the status the merchant published. Only the yes/no flag was made public.'),
+        h('p', { class: 'hint' }, 'Decrypted by the Zama KMS from the status the merchant published, and its signatures were checked by the contract. Only the yes/no flag was made public.'),
         ...(paid ? [record] : []),
       );
     } catch (e) {
@@ -700,11 +726,11 @@ export function viewHow() {
     h('ul', {},
       li('The invoice amount. Decryptable by the merchant, a fixed payer, and viewers the merchant adds.'),
       li('Every amount sent, and whether each payment was accepted or refunded. Decryptable by the merchant and that payer.'),
-      li('Whether the invoice is paid. Decryptable by the merchant and viewers; public only if they publish it.'),
+      li('Whether the invoice is paid. Decryptable by the merchant and viewers; public only if the merchant publishes it. "Paid" means some address sent exactly the invoiced amount; it does not say who.'),
       li('Token balances (ERC-7984).')),
     h('h3', {}, 'Public'),
     h('ul', {},
-      li('That an invoice exists: its id, the merchant address, the token, the optional payer, the expiry, and a hash of the link details.'),
+      li('That an invoice exists: its id, the merchant address, the token (one of a fixed list set at deployment), the optional payer, the expiry, and a hash of the link details.'),
       li('Who sent a payment attempt to which invoice, and when (addresses are not hidden by FHE).'),
       li('Gas use, which is the same for an accepted and a refunded payment.')),
     h('h3', {}, 'Only in the link'),

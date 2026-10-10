@@ -43,12 +43,14 @@ export function detailsHashOf(d: Pick<PayLink, 'salt' | 'memo' | 'amount'>): Hex
 }
 
 /**
- * Invisible, blank-looking and direction-changing characters, which can make a memo display differently from what
- * it says: soft hyphen, combining grapheme joiner, Arabic letter mark, Hangul fillers, Mongolian vowel separator,
- * zero-width and bidi marks/overrides/isolates, word joiner and invisible operators, BOM, and Unicode tag characters.
+ * Characters that can make a memo display differently from what it says: C0/C1 controls (incl. NEL), soft hyphen,
+ * combining grapheme joiner, Arabic letter mark, Hangul fillers, Khmer inherent vowels, Mongolian free variation
+ * selectors and vowel separator, zero-width and bidi marks/overrides/isolates, line/paragraph separators, word joiner,
+ * invisible operators and deprecated format controls, Braille blank, variation selectors (incl. supplement),
+ * BOM, interlinear annotation controls, musical-symbol format controls, and Unicode tag characters.
  */
 export const HIDDEN_CHARS =
-  /[­͏؜ᅟᅠ᠎​-‏‪-‮⁠-⁩ㅤ﻿\u{E0000}-\u{E007F}]/u;
+  /[\u0000-\u001F\u007F-\u009F\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180E\u200B-\u200F\u2028-\u202E\u2060-\u206F\u2800\u3164\uFE00-\uFE0F\uFEFF\uFFF9-\uFFFB\u{1D173}-\u{1D17A}\u{E0000}-\u{E007F}\u{E0100}-\u{E01EF}]/u;
 
 export function parseAmount(input: string, decimals: number): bigint {
   const s = input.trim();

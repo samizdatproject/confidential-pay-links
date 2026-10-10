@@ -7,7 +7,7 @@ import { createConfig, memoryStorage, ZamaSDK } from '@zama-fhe/sdk';
 import { sepolia } from '@zama-fhe/sdk/chains';
 import { node } from '@zama-fhe/sdk/node';
 import { ViemProvider } from '@zama-fhe/sdk/viem';
-import { createPublicClient, decodeFunctionResult, encodeFunctionData, http, keccak256, toHex } from 'viem';
+import { createPublicClient, decodeFunctionResult, encodeAbiParameters, encodeFunctionData, http, keccak256, toHex } from 'viem';
 import { sepolia as viemSepolia } from 'viem/chains';
 
 const RPC = 'https://ethereum-sepolia-rpc.publicnode.com';
@@ -28,6 +28,8 @@ const override = [{
     { slot: slot(0), value: word('0xf0Ffdc93b7E186bC2f8CB3dAA75D86d1930A433D') }, // ACL
     { slot: slot(1), value: word('0x92C920834Ec8941d2C77D188936E1f7A6f49c127') }, // FHEVMExecutor
     { slot: slot(2), value: word('0xbE0E383937d564D7FF0BC3b46c51f0bF8d5C311A') }, // KMSVerifier
+    // isAcceptedToken[cUSDCMock] = true (mapping at storage slot 0; `forge inspect ... storageLayout`)
+    { slot: keccak256(encodeAbiParameters([{ type: 'address' }, { type: 'uint256' }], ['0x7c5BF43B851c1dff1a4feE8dB225b87f2C223639', 0n])), value: word('0x01') },
   ],
 }];
 const merchant = '0x000000000000000000000000000000000000bEEF';

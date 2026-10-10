@@ -25,12 +25,20 @@ import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/Reentrancy
 /// who needs to see the amount) access to one invoice's amount and paid flag. The paid flag alone can be made
 /// publicly decryptable to prove "paid" to anyone without revealing the amount.
 ///
-/// There is no owner, no admin and no upgrade path. The contract never keeps payments: every accepted payment
-/// is forwarded in the same transaction. Tokens sent to this contract with a plain `confidentialTransfer`
-/// (no callback) cannot be recovered.
+/// There is no owner, no admin and no upgrade path. The set of accepted tokens is fixed at deployment (for example
+/// Zama's cUSDC / cUSDT wrappers): a merchant-chosen token could otherwise feed arbitrary handles into the callback.
+/// The contract never keeps payments: every accepted payment is forwarded in the same transaction. Tokens sent to
+/// this contract with a plain `confidentialTransfer` (no callback) cannot be recovered.
+///
+/// "Paid" means "some address sent exactly the invoiced amount of the invoice's token through this contract". It
+/// does not say who paid: a merchant can pay their own invoice. Consumers that care must check the payer address.
 contract ConfidentialPayLinks is IERC7984Receiver, ZamaEthereumConfig, ReentrancyGuardTransient {
     /// @notice Maximum number of viewers (auditors, payers) per invoice, so payments stay cheap.
     uint256 public constant MAX_VIEWERS = 8;
+
+    /// @notice ERC-7984 tokens invoices may be denominated in. Fixed in the constructor; there is no admin.
+    mapping(address token => bool) public isAcceptedToken;
+    address[] private _acceptedTokens;
 
     struct Invoice {
         address merchant; // creator; receives the payment
@@ -63,7 +71,7 @@ contract ConfidentialPayLinks is IERC7984Receiver, ZamaEthereumConfig, Reentranc
     mapping(address merchant => bytes32[]) private _merchantInvoices;
     mapping(address payer => PaymentRef[]) private _payerPayments;
 
-    /// @notice Paid-flag handle the merchant (or a viewer) made publicly decryptable, per invoice.
+    /// @notice Paid-flag handle the merchant made publicly decryptable, per invoice.
     mapping(bytes32 invoiceId => ebool) public publishedPaidHandle;
     /// @notice True once a KMS-signed public decryption proved the invoice paid. Never goes back to false.
     mapping(bytes32 invoiceId => bool) public paidConfirmed;
@@ -98,7 +106,23 @@ contract ConfidentialPayLinks is IERC7984Receiver, ZamaEthereumConfig, Reentranc
     error ZeroViewer();
     error TooManyViewers(bytes32 invoiceId);
     error NotAllowed(bytes32 invoiceId, address account);
+    error TokenNotAccepted(address token);
+    error NoTokens();
+    error UnauthorizedHandle();
     error NothingPublished(bytes32 invoiceId);
+
+    /// @param acceptedTokens ERC-7984 tokens invoices may use. Immutable after deployment.
+    constructor(address[] memory acceptedTokens) {
+        if (acceptedTokens.length == 0) revert NoTokens();
+        for (uint256 i = 0; i < acceptedTokens.length; i++) {
+            address t = acceptedTokens[i];
+            if (t == address(0)) revert ZeroToken();
+            if (!isAcceptedToken[t]) {
+                isAcceptedToken[t] = true;
+                _acceptedTokens.push(t);
+            }
+        }
+    }
 
     modifier onlyMerchant(bytes32 invoiceId) {
         address merchant = _invoices[invoiceId].merchant;
@@ -134,6 +158,7 @@ contract ConfidentialPayLinks is IERC7984Receiver, ZamaEthereumConfig, Reentranc
         bytes calldata inputProof
     ) external returns (bytes32 invoiceId) {
         if (token == address(0)) revert ZeroToken();
+        if (!isAcceptedToken[token]) revert TokenNotAccepted(token);
         if (expiresAt != 0 && expiresAt <= block.timestamp) revert BadExpiry();
         invoiceId = invoiceIdOf(msg.sender, nonce);
         Invoice storage inv = _invoices[invoiceId];
@@ -143,7 +168,9 @@ contract ConfidentialPayLinks is IERC7984Receiver, ZamaEthereumConfig, Reentranc
         FHE.allowThis(amount);
         FHE.allow(amount, msg.sender);
 
-        ebool paid = FHE.asEbool(false);
+        // "false", but as a handle derived from this invoice's own input: `FHE.asEbool(false)` is one global handle
+        // shared by every invoice, so ACL grants on it would leak across invoices.
+        ebool paid = FHE.ne(amount, amount);
         FHE.allowThis(paid);
         FHE.allow(paid, msg.sender);
 
@@ -197,39 +224,12 @@ contract ConfidentialPayLinks is IERC7984Receiver, ZamaEthereumConfig, Reentranc
         if (inv.expiresAt != 0 && block.timestamp > inv.expiresAt) revert InvoiceExpired(invoiceId);
         if (inv.payer != address(0) && from != inv.payer) revert NotInvoicePayer(invoiceId, from);
 
-        // accepted = amount == due && !paid && amount != 0   (all encrypted)
-        ebool accepted = FHE.and(FHE.and(FHE.eq(amount, inv.amount), FHE.not(inv.paid)), FHE.ne(amount, uint64(0)));
-        ebool paid = FHE.or(inv.paid, accepted);
+        // The token must hold this handle itself (a real ERC-7984 transfer allows it); never compute on, or grant,
+        // handles a caller merely names.
+        if (!FHE.isAllowed(amount, msg.sender)) revert UnauthorizedHandle();
 
-        // Effects first.
-        inv.paid = paid;
-        FHE.allowThis(paid);
-        FHE.allow(paid, inv.merchant);
-        address[] storage viewers = _viewers[invoiceId];
-        for (uint256 i = 0; i < viewers.length; i++) {
-            FHE.allow(paid, viewers[i]);
-        }
-
-        FHE.allowThis(accepted);
-        FHE.allow(accepted, inv.merchant);
-        FHE.allow(accepted, from);
-        // The token already granted `amount` to this contract and to `from`; the merchant may see attempts too.
-        FHE.allow(amount, inv.merchant);
-
-        uint256 index = _payments[invoiceId].length;
-        // uint48 seconds last for millions of years.
-        // forge-lint: disable-next-line(unsafe-typecast)
-        uint48 paidAt = uint48(block.timestamp);
-        _payments[invoiceId].push(Payment({payer: from, paidAt: paidAt, received: amount, accepted: accepted}));
-        _payerPayments[from].push(PaymentRef({invoiceId: invoiceId, index: index}));
-        emit PaymentReceived(invoiceId, from, index, amount, accepted);
-
-        // Interaction: always transfer (possibly zero) so payments and refunds look the same on chain.
-        euint64 forward = FHE.select(accepted, amount, FHE.asEuint64(0));
-        FHE.allowTransient(forward, msg.sender);
-        // The returned handle is not needed: the forward can never exceed what this contract just received.
-        // forge-lint: disable-next-line(unused-return)
-        IERC7984(msg.sender).confidentialTransfer(inv.merchant, forward);
+        ebool accepted = _forward(inv, amount);
+        _record(invoiceId, inv, from, amount, accepted);
 
         // Returning false makes the token move `amount` back to `from`. We forwarded zero in that case, so the
         // refund is covered by the amount we just received.
@@ -240,11 +240,12 @@ contract ConfidentialPayLinks is IERC7984Receiver, ZamaEthereumConfig, Reentranc
     // ------------------------------------------------------------------ public proof of payment
 
     /// @notice Make the invoice's current paid flag publicly decryptable. Reveals only yes/no, never an amount.
-    ///         Callable by anyone who can already decrypt the flag (the merchant, a fixed payer, or a viewer).
+    ///         Merchant only: publishing is the merchant's decision (it can also hint which attempt succeeded, since
+    ///         attempts are public). Authorisation is by role, not by ACL, because ACL includes transient grants.
     function publishPaidStatus(bytes32 invoiceId) external {
         Invoice storage inv = _invoices[invoiceId];
         if (inv.merchant == address(0)) revert UnknownInvoice(invoiceId);
-        if (!FHE.isAllowed(inv.paid, msg.sender)) revert NotAllowed(invoiceId, msg.sender);
+        if (msg.sender != inv.merchant) revert NotAllowed(invoiceId, msg.sender);
         FHE.makePubliclyDecryptable(inv.paid);
         publishedPaidHandle[invoiceId] = inv.paid;
         emit PaidStatusPublished(invoiceId, inv.paid);
@@ -281,8 +282,23 @@ contract ConfidentialPayLinks is IERC7984Receiver, ZamaEthereumConfig, Reentranc
         return _payments[invoiceId][index];
     }
 
-    function getPayments(bytes32 invoiceId) external view returns (Payment[] memory) {
-        return _payments[invoiceId];
+    /// @notice Up to `limit` payments of an invoice starting at `offset` (oldest first).
+    function getPayments(bytes32 invoiceId, uint256 offset, uint256 limit)
+        external
+        view
+        returns (Payment[] memory page)
+    {
+        Payment[] storage all = _payments[invoiceId];
+        if (offset >= all.length) return new Payment[](0);
+        uint256 end = offset + limit > all.length ? all.length : offset + limit;
+        page = new Payment[](end - offset);
+        for (uint256 i = offset; i < end; i++) {
+            page[i - offset] = all[i];
+        }
+    }
+
+    function acceptedTokens() external view returns (address[] memory) {
+        return _acceptedTokens;
     }
 
     function viewersOf(bytes32 invoiceId) external view returns (address[] memory) {
@@ -304,11 +320,61 @@ contract ConfidentialPayLinks is IERC7984Receiver, ZamaEthereumConfig, Reentranc
         }
     }
 
-    function paymentsBy(address payer) external view returns (PaymentRef[] memory) {
-        return _payerPayments[payer];
+    function paymentCountBy(address payer) external view returns (uint256) {
+        return _payerPayments[payer].length;
+    }
+
+    /// @notice Up to `limit` of `payer`'s payments starting at `offset` (oldest first).
+    function paymentsBy(address payer, uint256 offset, uint256 limit) external view returns (PaymentRef[] memory page) {
+        PaymentRef[] storage all = _payerPayments[payer];
+        if (offset >= all.length) return new PaymentRef[](0);
+        uint256 end = offset + limit > all.length ? all.length : offset + limit;
+        page = new PaymentRef[](end - offset);
+        for (uint256 i = offset; i < end; i++) {
+            page[i - offset] = all[i];
+        }
     }
 
     // ------------------------------------------------------------------ internal
+
+    /// @dev Forwards the payment to the merchant if it matches; returns whether the merchant really received it.
+    function _forward(Invoice storage inv, euint64 amount) private returns (ebool accepted) {
+        // want = amount == due && !paid && amount != 0   (all encrypted)
+        ebool want = FHE.and(FHE.and(FHE.eq(amount, inv.amount), FHE.not(inv.paid)), FHE.ne(amount, uint64(0)));
+        // Always transfer (possibly zero) so payments and refunds look the same on chain.
+        euint64 forward = FHE.select(want, amount, FHE.asEuint64(0));
+        FHE.allowTransient(forward, msg.sender);
+        euint64 moved = IERC7984(msg.sender).confidentialTransfer(inv.merchant, forward);
+        // Only count it as paid if the merchant received the whole amount.
+        accepted = FHE.and(want, FHE.eq(moved, amount));
+    }
+
+    /// @dev Updates the paid flag and stores the attempt, with ACL grants for merchant, viewers and payer.
+    function _record(bytes32 invoiceId, Invoice storage inv, address from, euint64 amount, ebool accepted) private {
+        ebool paid = FHE.or(inv.paid, accepted);
+        inv.paid = paid;
+        FHE.allowThis(paid);
+        FHE.allow(paid, inv.merchant);
+        address[] storage viewers = _viewers[invoiceId];
+        for (uint256 i = 0; i < viewers.length; i++) {
+            FHE.allow(paid, viewers[i]);
+        }
+
+        FHE.allowThis(accepted);
+        FHE.allow(accepted, inv.merchant);
+        FHE.allow(accepted, from);
+        // `amount` was checked to be held by the token (a real transfer result, already allowed to this contract and
+        // to `from`); the merchant may see attempts too.
+        FHE.allow(amount, inv.merchant);
+
+        uint256 index = _payments[invoiceId].length;
+        // uint48 seconds last for millions of years.
+        // forge-lint: disable-next-line(unsafe-typecast)
+        uint48 paidAt = uint48(block.timestamp);
+        _payments[invoiceId].push(Payment({payer: from, paidAt: paidAt, received: amount, accepted: accepted}));
+        _payerPayments[from].push(PaymentRef({invoiceId: invoiceId, index: index}));
+        emit PaymentReceived(invoiceId, from, index, amount, accepted);
+    }
 
     function _addViewer(bytes32 invoiceId, Invoice storage inv, address viewer) private {
         if (!_isViewer[invoiceId][viewer]) {

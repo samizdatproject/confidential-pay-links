@@ -39,6 +39,30 @@ contract ReentrantToken is ERC7984, ZamaEthereumConfig {
     }
 }
 
+/// @dev A token that "forwards" by moving nothing to the merchant (skims the forward), to check that the contract
+///      only counts a payment when the merchant really received it.
+contract SkimmingToken is ERC7984, ZamaEthereumConfig {
+    constructor() ERC7984("Skim", "SK", "") {}
+
+    function mint(address to, uint64 amount) external {
+        _mint(to, FHE.asEuint64(amount));
+    }
+
+    function confidentialTransfer(address to, euint64 amount) public override returns (euint64) {
+        FHE.allowThis(amount);
+        return super.confidentialTransfer(to, FHE.asEuint64(0));
+    }
+}
+
+/// @dev Port of the review PoC: a fake "token" that hands the contract someone else's handle.
+contract EvilToken {
+    function fire(ConfidentialPayLinks t, bytes32 myInvoice, euint64 victimHandle) external {
+        t.onConfidentialTransferReceived(address(this), msg.sender, victimHandle, abi.encode(myInvoice));
+    }
+
+    function confidentialTransfer(address, euint64) external returns (euint64 r) {}
+}
+
 contract ConfidentialPayLinksTest is FhevmTest {
     ConfidentialPayLinks internal links;
     MockUSD internal usd;
@@ -65,11 +89,11 @@ contract ConfidentialPayLinksTest is FhevmTest {
         auditor = vm.addr(AUDITOR_PK);
         stranger = vm.addr(STRANGER_PK);
 
-        links = new ConfidentialPayLinks();
         usd = new MockUSD();
         cusd = new MockConfidentialUSD(usd, "Confidential Mock USD", "cmUSD");
         usd2 = new MockUSD();
         otherToken = new MockConfidentialUSD(usd2, "Other", "OTH");
+        links = new ConfidentialPayLinks(_tokens(address(cusd), address(otherToken)));
 
         dealConfidential(IERC7984ERC20Wrapper(address(cusd)), payer, FUNDS);
         dealConfidential(IERC7984ERC20Wrapper(address(otherToken)), payer, FUNDS);
@@ -77,6 +101,17 @@ contract ConfidentialPayLinksTest is FhevmTest {
     }
 
     // ------------------------------------------------------------------ helpers
+
+    function _tokens(address a) internal pure returns (address[] memory t) {
+        t = new address[](1);
+        t[0] = a;
+    }
+
+    function _tokens(address a, address b) internal pure returns (address[] memory t) {
+        t = new address[](2);
+        t[0] = a;
+        t[1] = b;
+    }
 
     function _create(bytes32 nonce, address token, address fixedPayer, uint48 expiresAt, uint64 amount)
         internal
@@ -147,7 +182,7 @@ contract ConfidentialPayLinksTest is FhevmTest {
         assertEq(p.payer, payer);
         assertEq(decrypt(p.received), PRICE);
         assertTrue(decrypt(p.accepted));
-        ConfidentialPayLinks.PaymentRef[] memory refs = links.paymentsBy(payer);
+        ConfidentialPayLinks.PaymentRef[] memory refs = links.paymentsBy(payer, 0, 10);
         assertEq(refs.length, 1);
         assertEq(refs[0].invoiceId, id);
     }
@@ -336,7 +371,7 @@ contract ConfidentialPayLinksTest is FhevmTest {
         assertEq(id, keccak256(abi.encode(block.chainid, address(links), merchant, nonce)));
         assertTrue(id != links.invoiceIdOf(payer, nonce), "merchant-bound");
         assertTrue(id != links.invoiceIdOf(merchant, keccak256("m")), "nonce-bound");
-        ConfidentialPayLinks other = new ConfidentialPayLinks();
+        ConfidentialPayLinks other = new ConfidentialPayLinks(_tokens(address(cusd)));
         assertTrue(id != other.invoiceIdOf(merchant, nonce), "contract-bound");
         uint256 chain = vm.getChainId();
         vm.chainId(11155111);
@@ -546,10 +581,13 @@ contract ConfidentialPayLinksTest is FhevmTest {
         links.publishPaidStatus(id);
         vm.expectRevert(abi.encodeWithSelector(ConfidentialPayLinks.NothingPublished.selector, id));
         links.confirmPaidStatus(id, abi.encode(true), "");
-        // A viewer the merchant trusted may publish.
+        // Publishing is the merchant's decision: viewers and fixed payers cannot publish.
         vm.prank(merchant);
         links.addViewer(id, auditor);
         vm.prank(auditor);
+        vm.expectRevert(abi.encodeWithSelector(ConfidentialPayLinks.NotAllowed.selector, id, auditor));
+        links.publishPaidStatus(id);
+        vm.prank(merchant);
         links.publishPaidStatus(id);
     }
 
@@ -558,6 +596,7 @@ contract ConfidentialPayLinksTest is FhevmTest {
     function test_reentrancy_blocked() public {
         ReentrantToken bad = new ReentrantToken();
         bad.mint(payer, FUNDS);
+        links = new ConfidentialPayLinks(_tokens(address(bad)));
         bytes32 id = _create(bytes32(uint256(9)), address(bad), address(0), 0, PRICE);
         bad.arm(links, id);
         (externalEuint64 enc, bytes memory proof) = encryptUint64(PRICE, payer, address(bad));
@@ -615,6 +654,167 @@ contract ConfidentialPayLinksTest is FhevmTest {
                 sigs[n++] = keccak256(abi.encode(logs[i].emitter, logs[i].topics[0]));
             }
         }
+    }
+
+    // ------------------------------------------------------------------ review regressions
+
+    /// N-1 / M-1: a fake token cannot be used, and even an accepted token cannot pass a handle it does not hold.
+    function test_regression_fakeTokenCannotLeakVictimAmounts() public {
+        bytes32 victim = _createOpen(PRICE);
+        _pay(payer, cusd, victim, PRICE);
+        euint64 victimAmount = links.getInvoice(victim).amount;
+
+        EvilToken evil = new EvilToken();
+        (externalEuint64 enc, bytes memory proof) = encryptUint64(1, stranger, address(links));
+        vm.prank(stranger);
+        vm.expectRevert(abi.encodeWithSelector(ConfidentialPayLinks.TokenNotAccepted.selector, address(evil)));
+        links.createInvoice(bytes32(uint256(99)), address(evil), address(0), 0, 0, enc, proof);
+
+        // Defence in depth: deploy a contract that (wrongly) accepts the evil token; the handle check still holds.
+        ConfidentialPayLinks weak = new ConfidentialPayLinks(_tokens(address(evil)));
+        (enc, proof) = encryptUint64(1, stranger, address(weak));
+        vm.prank(stranger);
+        bytes32 mine = weak.createInvoice(bytes32(uint256(99)), address(evil), address(0), 0, 0, enc, proof);
+        vm.prank(stranger);
+        vm.expectRevert(ConfidentialPayLinks.UnauthorizedHandle.selector);
+        evil.fire(weak, mine, victimAmount);
+
+        bytes memory sig = signUserDecrypt(STRANGER_PK, address(links));
+        _assertNoAccess(euint64.unwrap(victimAmount), stranger, sig);
+        _assertNoAccess(euint64.unwrap(links.getPayment(victim, 0).received), stranger, sig);
+    }
+
+    /// N-1: the same attack through an accepted token's callback with someone else's handle.
+    function test_regression_acceptedTokenCallerMustHoldHandle() public {
+        bytes32 victim = _createOpen(PRICE);
+        euint64 victimAmount = links.getInvoice(victim).amount;
+        (externalEuint64 enc, bytes memory proof) = encryptUint64(1, stranger, address(links));
+        vm.prank(stranger);
+        bytes32 mine = links.createInvoice(bytes32(uint256(98)), address(cusd), address(0), 0, 0, enc, proof);
+        vm.prank(address(cusd)); // even a call that really comes from the token address
+        vm.expectRevert(ConfidentialPayLinks.UnauthorizedHandle.selector);
+        links.onConfidentialTransferReceived(stranger, stranger, victimAmount, abi.encode(mine));
+    }
+
+    /// M-2: paid flags are per-invoice handles, and only the merchant may publish.
+    function test_regression_paidFlagNotSharedAcrossInvoices() public {
+        bytes32 a = _createOpen(PRICE);
+        (externalEuint64 enc, bytes memory proof) = encryptUint64(7, stranger, address(links));
+        vm.prank(stranger);
+        bytes32 b = links.createInvoice(bytes32(uint256(1)), address(cusd), address(0), 0, 0, enc, proof);
+        assertTrue(ebool.unwrap(links.getInvoice(a).paid) != ebool.unwrap(links.getInvoice(b).paid));
+        assertFalse(_paid(a));
+        assertFalse(_paid(b));
+        vm.prank(merchant); // merchant of A cannot publish B
+        vm.expectRevert(abi.encodeWithSelector(ConfidentialPayLinks.NotAllowed.selector, b, merchant));
+        links.publishPaidStatus(b);
+        // ...nor decrypt B's flag through a shared handle.
+        _assertNoAccess(ebool.unwrap(links.getInvoice(b).paid), merchant, signUserDecrypt(MERCHANT_PK, address(links)));
+    }
+
+    function test_regression_tokenAllowlist() public {
+        vm.expectRevert(ConfidentialPayLinks.NoTokens.selector);
+        new ConfidentialPayLinks(new address[](0));
+        vm.expectRevert(ConfidentialPayLinks.ZeroToken.selector);
+        new ConfidentialPayLinks(_tokens(address(0)));
+        assertTrue(links.isAcceptedToken(address(cusd)));
+        assertFalse(links.isAcceptedToken(address(usd)));
+        assertEq(links.acceptedTokens().length, 2);
+        (externalEuint64 enc, bytes memory proof) = encryptUint64(PRICE, merchant, address(links));
+        vm.prank(merchant);
+        vm.expectRevert(abi.encodeWithSelector(ConfidentialPayLinks.TokenNotAccepted.selector, address(usd)));
+        links.createInvoice(bytes32(0), address(usd), address(0), 0, 0, enc, proof);
+    }
+
+    /// L-1: a token that does not deliver the forward is not counted as paid, and the payer is refunded.
+    function test_regression_undeliveredForwardIsNotPaid() public {
+        SkimmingToken skim = new SkimmingToken();
+        skim.mint(payer, FUNDS);
+        links = new ConfidentialPayLinks(_tokens(address(skim)));
+        bytes32 id = _create(bytes32(uint256(12)), address(skim), address(0), 0, PRICE);
+        (externalEuint64 enc, bytes memory proof) = encryptUint64(PRICE, payer, address(skim));
+        vm.prank(payer);
+        skim.confidentialTransferAndCall(address(links), enc, proof, abi.encode(id));
+        assertFalse(_paid(id));
+        assertFalse(_accepted(id, 0));
+        assertEq(decrypt(skim.confidentialBalanceOf(payer)), FUNDS, "refunded");
+    }
+
+    // ------------------------------------------------------------------ L-6 extra cases
+
+    function test_merchantCanPayOwnInvoice_documentedLimitation() public {
+        dealConfidential(IERC7984ERC20Wrapper(address(cusd)), merchant, FUNDS);
+        bytes32 id = _createOpen(PRICE);
+        _pay(merchant, cusd, id, PRICE);
+        // "paid" means an address sent the exact amount; here it was the merchant. Consumers must check payer.
+        assertTrue(_paid(id));
+        assertEq(links.getPayment(id, 0).payer, merchant);
+        assertEq(_bal(cusd, merchant), FUNDS);
+    }
+
+    function test_fixedPayer_operatorFlow() public {
+        bytes32 id = _create(bytes32(uint256(13)), address(cusd), payer, 0, PRICE);
+        address operator = vm.addr(0x0EE);
+        vm.prank(payer);
+        cusd.setOperator(operator, uint48(block.timestamp + 1 hours));
+        (externalEuint64 enc, bytes memory proof) = encryptUint64(PRICE, operator, address(cusd));
+        vm.prank(operator);
+        cusd.confidentialTransferFromAndCall(payer, address(links), enc, proof, abi.encode(id));
+        assertTrue(_paid(id));
+        assertEq(links.getPayment(id, 0).payer, payer);
+    }
+
+    function test_paymentExactlyAtExpiry_isAccepted() public {
+        uint48 exp = uint48(block.timestamp + 1 hours);
+        bytes32 id = _create(bytes32(uint256(14)), address(cusd), address(0), exp, PRICE);
+        vm.warp(exp);
+        _pay(payer, cusd, id, PRICE);
+        assertTrue(_paid(id));
+    }
+
+    function test_cancelAfterAcceptance_rejectsLaterAttempts_keepsPaid() public {
+        bytes32 id = _createOpen(PRICE);
+        _pay(payer, cusd, id, PRICE);
+        vm.prank(merchant);
+        links.cancelInvoice(id);
+        (externalEuint64 enc, bytes memory proof) = encryptUint64(PRICE, stranger, address(cusd));
+        vm.prank(stranger);
+        vm.expectRevert(abi.encodeWithSelector(ConfidentialPayLinks.InvoiceIsCancelled.selector, id));
+        cusd.confidentialTransferAndCall(address(links), enc, proof, abi.encode(id));
+        assertTrue(_paid(id));
+        assertEq(_bal(cusd, stranger), FUNDS);
+    }
+
+    function test_stalePublishedFalse_afterAcceptedPayment_staysFalseUntilRepublished() public {
+        bytes32 id = _createOpen(PRICE);
+        vm.prank(merchant);
+        links.publishPaidStatus(id);
+        (bytes memory clear, bytes memory proof) = _publishAndProve(id);
+        _pay(payer, cusd, id, PRICE);
+        assertFalse(links.confirmPaidStatus(id, clear, proof));
+        assertFalse(links.paidConfirmed(id));
+        assertTrue(ebool.unwrap(links.publishedPaidHandle(id)) != ebool.unwrap(links.getInvoice(id).paid));
+    }
+
+    function test_spamAttempts_paginatedViews() public {
+        bytes32 id = _createOpen(PRICE);
+        for (uint256 i = 0; i < 12; i++) {
+            _pay(stranger, cusd, id, 1);
+        }
+        assertEq(links.paymentCount(id), 12);
+        assertEq(links.getPayments(id, 0, 5).length, 5);
+        assertEq(links.getPayments(id, 10, 5).length, 2);
+        assertEq(links.getPayments(id, 12, 5).length, 0);
+        assertEq(links.paymentCountBy(stranger), 12);
+        assertEq(links.paymentsBy(stranger, 11, 100).length, 1);
+        // A legitimate payment after spam still costs about the same (no per-attempt loops in the payment path).
+        (externalEuint64 enc, bytes memory proof) = encryptUint64(PRICE, payer, address(cusd));
+        vm.prank(payer);
+        uint256 g = gasleft();
+        cusd.confidentialTransferAndCall(address(links), enc, proof, abi.encode(id));
+        assertLt(g - gasleft(), 2_000_000);
+        assertTrue(_paid(id));
+        assertEq(_bal(cusd, stranger), FUNDS, "all spam refunded");
     }
 
     // ------------------------------------------------------------------ fuzz
